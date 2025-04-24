@@ -77,7 +77,7 @@ python dataset_preparation/create_floreview_spectrogram_dataset_brand.py
 python training_vision/train_test_model_cbam.py
 
 # Filtered CBAM-ResNet Variant
-python training_vision/train_test_model_filtered_variant_cbam.py
+python training_vision/train_test_model_merged_cbam.py
 ```
 
 ### 5. Abblation Study
