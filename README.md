@@ -1,6 +1,6 @@
 # Attention-Based Source Device Identification Using Audio Content from Videos and Grad-CAM Explanations
 
-This repository provides a full pipeline for source device identification from audio extracted from videos. It leverages CBAM-ResNet architectures and supports training on the VISION dataset and adaptation to the FLOREVIEW dataset.
+This repository provides a comprehensive pipeline for source device identification using audio extracted from videos. It leverages [CBAM]([https://arxiv.org/abs/1807.06521](https://github.com/elbuco1/CBAM)) architecture and supports training on the [VISION dataset](https://lesc.dinfo.unifi.it/VISION/), with robust transfer learning and evaluation on the [FLOREVIEW dataset](https://lesc.dinfo.unifi.it/FloreView/). Additionally, it includes support for [Grad-CAM]([https://arxiv.org/abs/1610.02391](https://ieeexplore.ieee.org/document/8237336)) visualizations to interpret model decisions through class-discriminative spectrogram heatmaps.
 
 ---
 
