@@ -41,7 +41,7 @@ def process_device_folder(base_directory, output_base_directory):
 # Set the base directory where the device folders are located
 base_directory = ''
 # Set the base output directory where the .npy files will be saved
-output_base_directory = '/'
+output_base_directory = ''
 
 # Process audio for each device folder
 process_device_folder(base_directory, output_base_directory)
