@@ -12,7 +12,8 @@ This repository provides a full pipeline for source device identification from a
 | `spectrogram_generation/`      | Convert audio to mel spectrograms                                          |
 | `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
 | `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & filtered variant)   |
-| `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device, brand, merged views) |
+| `abblation_study/`             | Abblation Study on VISION dataset (channel, spatial, & both modules)       |
+| `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device & brand views)        |
 | `utils/`                       | Placeholder for shared functions or helpers                                |
 
 ---
@@ -79,7 +80,14 @@ python training_vision/train_test_model_cbam.py
 python training_vision/train_test_model_filtered_variant_cbam.py
 ```
 
-### 5. Transfer Learning on FLOREVIEW
+### 5. Abblation Study
+
+```bash
+# Bblation Study for VISION on Validation Set
+python abblation_study/val_model_channel_spatial_both_abbl.py
+```
+
+### 6. Transfer Learning on FLOREVIEW
 
 ```bash
 # Device-wise fine-tuning
