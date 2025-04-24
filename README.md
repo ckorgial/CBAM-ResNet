@@ -11,7 +11,7 @@ This repository provides a full pipeline for source device identification from a
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `spectrogram_generation/`      | Convert audio to mel spectrograms                                          |
 | `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
-| `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & filtered variant)   |
+| `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
 | `abblation_study/`             | Abblation Study on VISION dataset (channel, spatial, & both modules)       |
 | `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device & brand views)        |
 | `utils/`                       | Placeholder for shared functions or helpers                                |
@@ -60,8 +60,8 @@ python spectrogram_generation/Floreview_Flat_mel.py
 # VISION (Standard)
 python dataset_preparation/create_spectrogram_dataset.py
 
-# VISION (Filtered Variant)
-python dataset_preparation/create_spectrogram_dataset_filtered_variant.py
+# VISION (Merged)
+python dataset_preparation/create_spectrogram_dataset_merged.py
 
 # FLOREVIEW - Device-wise
 python dataset_preparation/create_train_test_data.py
