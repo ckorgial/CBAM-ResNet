@@ -64,10 +64,10 @@ python dataset_preparation/create_spectrogram_dataset.py
 python dataset_preparation/create_spectrogram_dataset_merged.py
 
 # FLOREVIEW - Device-wise
-python dataset_preparation/create_train_test_data.py
+python dataset_preparation/create_floreview_spectrogram_dataset.py
 
 # FLOREVIEW - Brand-wise
-python dataset_preparation/create_train_test_data_brand.py
+python dataset_preparation/create_floreview_spectrogram_dataset_brand.py
 ```
 
 ### 4. Train CBAM Models on VISION
