@@ -1,6 +1,6 @@
 # Attention-Based Source Device Identification Using Audio Content from Videos and Grad-CAM Explanations
 
-This repository implements source device identification using log-mel spectrograms of audios extracted from videos. It leverages [CBAM](https://github.com/elbuco1/CBAM) architecture and supports training on the [VISION](https://lesc.dinfo.unifi.it/VISION/) dataset, with robust transfer learning and evaluation on the [FLOREVIEW](https://lesc.dinfo.unifi.it/FloreView/) dataset. Additionally, it includes support for [Grad-CAM](https://ieeexplore.ieee.org/document/8237336) visualizations to interpret model decisions through class-discriminative spectrogram heatmaps.
+This repository implements source device identification using log-mel spectrograms of audios extracted from videos. It leverages [CBAM](https://openaccess.thecvf.com/content_ECCV_2018/papers/Sanghyun_Woo_Convolutional_Block_Attention_ECCV_2018_paper.pdf) architecture and supports training on the [VISION](https://jis-eurasipjournals.springeropen.com/articles/10.1186/s13635-017-0067-2) dataset, with robust transfer learning and evaluation on the [FloreView](https://ieeexplore.ieee.org/document/10271281) dataset. Additionally, it includes [Grad-CAM](https://ieeexplore.ieee.org/document/8237336) visualizations to interpret model decisions.
 
 ---
 
@@ -8,11 +8,12 @@ This repository implements source device identification using log-mel spectrogra
 
 | Folder                         | Description                                                                |
 | ------------------------------ | -------------------------------------------------------------------------- |
-| `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
-| `spectrogram_generation/`      | Convert audio to mel spectrograms                                          |
-| `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
-| `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
 | `abblation_study/`             | Abblation Study on VISION dataset (channel, spatial, & both modules)       |
+| `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
+| `dataset/`                     | VISION and FloreView download                                              |
+| `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
+| `spectrogram_generation/`      | Convert audio to mel spectrograms                                          |
+| `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
 | `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device & brand views)        |
 
 ---
@@ -36,6 +37,14 @@ Also ensure `ffmpeg` is installed on your system for audio extraction.
 ---
 
 ## Pipeline Instructions
+
+### 1. VISION and FloreView Download
+
+You can download the [VISION](https://lesc.dinfo.unifi.it/VISION/) and the [FloreView](https://lesc.dinfo.unifi.it/FloreView/) dataset using the script
+
+```bash
+python dataset/download_datasets.py
+```
 
 ### 1. Extract Audio from Videos
 
