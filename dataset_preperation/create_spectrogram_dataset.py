@@ -8,7 +8,7 @@ SAMPLING_RATE = 44100
 DURATION = 300
 SHIFT = 200
 
-audio_dataset_path = '/media/blue/ckorgial/XAI_VISION/VISION_mel_all_44100_bandpass/'
+spectro_dataset_path = '/media/blue/ckorgial/XAI_VISION/VISION_mel_all_44100_bandpass/'
 recording_type = ['flat', 'indoor', 'outdoor']
 recording_source = ['', 'YT', 'WA']
 device_ids = ['D{:01}'.format(i) for i in range(1, 35)]
@@ -124,7 +124,7 @@ devices_list = ['D01','D02','D03','D04','D05','D06','D07','D08','D09','D10','D11
 recording_types_list = ['flat'] # Changefor flat, indoor, and outdoor
 
 X, y = [], []
-iterate_dataset(audio_dataset_path, devices_list, recording_types_list)
+iterate_dataset(spectro_dataset_path, devices_list, recording_types_list)
 # Perform the process for flat, indoor and outdoor
 np.save('X_flat.npy', X)
 np.save('y_flat.npy', y)
