@@ -14,7 +14,6 @@ This repository provides a full pipeline for source device identification from a
 | `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
 | `abblation_study/`             | Abblation Study on VISION dataset (channel, spatial, & both modules)       |
 | `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device & brand views)        |
-| `utils/`                       | Placeholder for shared functions or helpers                                |
 
 ---
 
