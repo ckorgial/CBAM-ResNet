@@ -1,6 +1,6 @@
 # Attention-Based Source Device Identification Using Audio Content from Videos and Grad-CAM Explanations
 
-This repository provides a full pipeline for device identification from audio extracted from videos. It leverages CBAM-ResNet architectures and supports training on the VISION dataset and adaptation to the FLOREVIEW dataset.
+This repository provides a full pipeline for source device identification from audio extracted from videos. It leverages CBAM-ResNet architectures and supports training on the VISION dataset and adaptation to the FLOREVIEW dataset.
 
 ---
 
@@ -11,7 +11,7 @@ This repository provides a full pipeline for device identification from audio ex
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `spectrogram_generation/`      | Convert audio to mel spectrograms                                          |
 | `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
-| `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & TUBARO-filtered)    |
+| `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & filtered variant)   |
 | `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device, brand, merged views) |
 | `utils/`                       | Placeholder for shared functions or helpers                                |
 
@@ -28,6 +28,7 @@ scikit-learn
 matplotlib
 seaborn
 numpy
+opencv-python
 ```
 
 Also ensure `ffmpeg` is installed on your system for audio extraction.
@@ -45,7 +46,8 @@ python audio_extraction/video2audio.py
 ### 2. Generate Mel Spectrograms
 
 ```bash
-# For VISION dataset\python spectrogram_generation/VISION_mel.py
+# For VISION dataset
+python spectrogram_generation/VISION_mel.py
 
 # For FLOREVIEW dataset
 python spectrogram_generation/Floreview_Flat_mel.py
@@ -57,7 +59,7 @@ python spectrogram_generation/Floreview_Flat_mel.py
 # VISION (Standard)
 python dataset_preparation/create_spectrogram_dataset.py
 
-# VISION (TUBARO-filtered)
+# VISION (Filtered Variant)
 python dataset_preparation/create_spectrogram_dataset_tubaro.py
 
 # FLOREVIEW - Device-wise
@@ -73,7 +75,7 @@ python dataset_preparation/create_train_test_data_brand.py
 # Standard CBAM-ResNet
 python training_vision/train_test_model_cbam.py
 
-# TUBARO-enhanced CBAM-ResNet
+# Filtered CBAM-ResNet Variant
 python training_vision/train_test_model_tubaro_cbam.py
 ```
 
@@ -108,21 +110,36 @@ Each training script saves:
 - All spectrograms are resized to 128x128
 - Spectrograms are single-channel (grayscale)
 - FLOREVIEW uses 46 classes (device-wise) or 8 brands (brand-wise)
-- TUBARO version uses device merging strategy for robust generalization
+- Filtered variant uses device merging strategy for robust generalization
 
 ---
 
-## 🤖 Future Work
+## 📈 Grad-CAM Visualizations
 
-- Support for open-set and few-shot settings
-- Integration with multimodal networks (video & audio)
-- Expand with other datasets (e.g., DeepFake detection)
+This repository supports Grad-CAM visualizations for model interpretability.
+
+- A dedicated script `gradcam_vision_cbam.py` allows applying Grad-CAM using the **best training checkpoint from your CBAM model**.
+- The model visualizes heatmaps over mel spectrograms indicating regions contributing most to the classification decision.
+
+**Grad-CAM pipeline steps:**
+
+1. Load and preprocess a mel spectrogram image
+2. Load the best trained CBAM-ResNet model from this repo (e.g., `Results_test_cbam/best_model.h5`)
+3. Extract features from the last convolutional layer
+4. Apply CBAM modules post hoc (channel + spatial attention)
+5. Compute gradients and create a class-discriminative heatmap
+6. Overlay the heatmap on the original spectrogram for visualization
+
+```bash
+# Example (adapt the model path and image path):
+python gradcam_vision_cbam.py
+```
 
 ---
 
 ## 👤 Author
 
-**Christos Korgialas**
+**Christos Korgialas (**[**ckorgial@csd.auth.gr**](mailto\:ckorgial@csd.auth.gr)**)**
 
 ---
 
