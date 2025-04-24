@@ -21,7 +21,7 @@ config.gpu_options.per_process_gpu_memory_fraction = gpu_fraction
 tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session(config=config))
 
 # Directory to save the models and reports
-save_dir = '/media/blue/ckorgial/XAI_VISION/Results_test_cbam_2/'
+save_dir = ''
 
 # Ensure the directory exists
 if not os.path.exists(save_dir):
@@ -48,18 +48,18 @@ def split_equal_train_test(X_train, y_train, num_samples_per_class=10):
     return X_train, X_test, y_train, y_test
 
 # Load your data (replace 'your_X_file.npy' and 'your_y_file.npy' with your actual file paths)
-X_flat = np.load('/media/blue/ckorgial/XAI_VISION/VISION_train/X_flat.npy')
-y_flat = np.load('/media/blue/ckorgial/XAI_VISION/VISION_train/y_flat.npy')
+X_flat = np.load('./X_flat.npy')
+y_flat = np.load('./y_flat.npy')
 
 y_flat = y_flat - 1
 
-X_indoor = np.load('/media/blue/ckorgial/XAI_VISION/VISION_train/X_indoor.npy')
-y_indoor = np.load('/media/blue/ckorgial/XAI_VISION/VISION_train/y_indoor.npy')
+X_indoor = np.load('./X_indoor.npy')
+y_indoor = np.load('./y_indoor.npy')
 
 y_indoor = y_indoor - 1
 
-X_outdoor = np.load('/media/blue/ckorgial/XAI_VISION/VISION_train/X_outdoor.npy')
-y_outdoor = np.load('/media/blue/ckorgial/XAI_VISION/VISION_train/y_outdoor.npy')
+X_outdoor = np.load('./X_outdoor.npy')
+y_outdoor = np.load('./y_outdoor.npy')
 
 y_outdoor = y_outdoor - 1
 
