@@ -46,13 +46,13 @@ You can download the [VISION](https://lesc.dinfo.unifi.it/VISION/) and the [Flor
 python dataset/download_datasets.py
 ```
 
-### 1. Extract Audio from Videos
+### 2. Extract Audio from Videos
 
 ```bash
 python audio_extraction/video2audio.py
 ```
 
-### 2. Generate Mel Spectrograms
+### 3. Generate Mel Spectrograms
 
 ```bash
 # For VISION dataset
@@ -62,7 +62,7 @@ python spectrogram_generation/VISION_mel.py
 python spectrogram_generation/Floreview_Flat_mel.py
 ```
 
-### 3. Create Spectrogram Dataset (.npy files)
+### 4. Create Spectrogram Dataset (.npy files)
 
 ```bash
 # VISION (Standard)
@@ -78,7 +78,7 @@ python dataset_preparation/create_floreview_spectrogram_dataset.py
 python dataset_preparation/create_floreview_spectrogram_dataset_brand.py
 ```
 
-### 4. Train CBAM Models on VISION
+### 5. Train CBAM Models on VISION
 
 ```bash
 # Standard CBAM-ResNet
@@ -88,14 +88,14 @@ python training_vision/train_test_model_cbam.py
 python training_vision/train_test_model_merged_cbam.py
 ```
 
-### 5. Abblation Study
+### 6. Abblation Study
 
 ```bash
 # Bblation Study for VISION on Validation Set
 python abblation_study/val_model_channel_spatial_both_abbl.py
 ```
 
-### 6. Transfer Learning on FLOREVIEW
+### 7. Transfer Learning on FLOREVIEW
 
 ```bash
 # Device-wise fine-tuning
