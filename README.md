@@ -95,9 +95,6 @@ python transfer_learning_floreview/transfer_cbam.py
 
 # Brand-wise fine-tuning
 python transfer_learning_floreview/transfer_cbam_brand.py
-
-# Merged-device test (unsupervised simulation)
-python transfer_learning_floreview/transfer_cbam_merged.py
 ```
 
 ---
