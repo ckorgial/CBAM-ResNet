@@ -60,7 +60,7 @@ python spectrogram_generation/Floreview_Flat_mel.py
 python dataset_preparation/create_spectrogram_dataset.py
 
 # VISION (Filtered Variant)
-python dataset_preparation/create_spectrogram_dataset_tubaro.py
+python dataset_preparation/create_spectrogram_dataset_filtered_variant.py
 
 # FLOREVIEW - Device-wise
 python dataset_preparation/create_train_test_data.py
@@ -76,7 +76,7 @@ python dataset_preparation/create_train_test_data_brand.py
 python training_vision/train_test_model_cbam.py
 
 # Filtered CBAM-ResNet Variant
-python training_vision/train_test_model_tubaro_cbam.py
+python training_vision/train_test_model_filtered_variant_cbam.py
 ```
 
 ### 5. Transfer Learning on FLOREVIEW
