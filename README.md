@@ -4,7 +4,7 @@ This repository provides a full pipeline for source device identification from a
 
 ---
 
-## 📆 Project Structure
+## Project Structure
 
 | Folder                         | Description                                                                |
 | ------------------------------ | -------------------------------------------------------------------------- |
@@ -17,7 +17,7 @@ This repository provides a full pipeline for source device identification from a
 
 ---
 
-## 🔧 Requirements
+## Requirements
 
 Create a `requirements.txt` with:
 
@@ -35,7 +35,7 @@ Also ensure `ffmpeg` is installed on your system for audio extraction.
 
 ---
 
-## 🚀 Pipeline Instructions
+## Pipeline Instructions
 
 ### 1. Extract Audio from Videos
 
@@ -94,7 +94,7 @@ python transfer_learning_floreview/transfer_cbam_merged.py
 
 ---
 
-## 📊 Outputs
+## Outputs
 
 Each training script saves:
 
@@ -105,7 +105,7 @@ Each training script saves:
 
 ---
 
-## 🚨 Notes
+## Notes
 
 - All spectrograms are resized to 128x128
 - Spectrograms are single-channel (grayscale)
@@ -114,7 +114,7 @@ Each training script saves:
 
 ---
 
-## 📈 Grad-CAM Visualizations
+## Grad-CAM Visualizations
 
 This repository supports Grad-CAM visualizations for model interpretability.
 
@@ -137,13 +137,13 @@ python gradcam_vision_cbam.py
 
 ---
 
-## 👤 Author
+## Author
 
 **Christos Korgialas (**[**ckorgial@csd.auth.gr**](mailto\:ckorgial@csd.auth.gr)**)**
 
 ---
 
-## 📄 License
+## License
 
 MIT License
 
