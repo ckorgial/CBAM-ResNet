@@ -12,7 +12,8 @@ This repository implements source device identification using log-mel spectrogra
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `dataset/`                     | VISION and FloreView download                                              |
 | `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
-| `spectrogram_generation/`      | Convert audio to mel spectrograms                                          |
+| `spectrogram_generation/`      | Convert audio to log-Mel spectrograms                                      |
+| `statistical_testing/`         | McNemar's statistical testing                                              |
 | `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
 | `transfer_learning_floreview/` | Fine-tune VISION models on FLOREVIEW dataset (device & brand views)        |
 
@@ -95,7 +96,14 @@ python training_vision/train_test_model_merged_cbam.py
 python abblation_study/val_model_channel_spatial_both_abl.py
 ```
 
-### 7. Transfer Learning on FLOREVIEW
+### 7. Statistical Testing
+
+```bash
+# McNemar's statistical testing
+python statistical_testing/mcnemars.py
+```
+
+### 8. Transfer Learning on FLOREVIEW
 
 ```bash
 # Device-wise fine-tuning
