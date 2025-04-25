@@ -118,15 +118,6 @@ Each training script saves:
 
 ---
 
-## Notes
-
-- All spectrograms are resized to 128x128
-- Spectrograms are single-channel (grayscale)
-- FLOREVIEW uses 46 classes (device-wise) or 8 brands (brand-wise)
-- Filtered variant uses device merging strategy for robust generalization
-
----
-
 ## Grad-CAM Visualizations
 
 This repository supports Grad-CAM visualizations for model interpretability.
