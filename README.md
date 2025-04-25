@@ -8,7 +8,7 @@ This repository implements source device identification using log-mel spectrogra
 
 | Folder                         | Description                                                                |
 | ------------------------------ | -------------------------------------------------------------------------- |
-| `abblation_study/`             | Abblation Study on VISION dataset (channel, spatial, & both modules)       |
+| `ablation_study/`              | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `dataset/`                     | VISION and FloreView download                                              |
 | `dataset_preparation/`         | Segment spectrograms and create training datasets                          |
@@ -78,7 +78,7 @@ python dataset_preparation/create_floreview_spectrogram_dataset.py
 python dataset_preparation/create_floreview_spectrogram_dataset_brand.py
 ```
 
-### 5. Train CBAM Models on VISION
+### 5. Train and Test the CBAM-ResNet-based Model on VISION
 
 ```bash
 # Standard CBAM-ResNet
@@ -88,11 +88,11 @@ python training_vision/train_test_model_cbam.py
 python training_vision/train_test_model_merged_cbam.py
 ```
 
-### 6. Abblation Study
+### 6. Ablation Study
 
 ```bash
-# Bblation Study for VISION on Validation Set
-python abblation_study/val_model_channel_spatial_both_abbl.py
+# Ablation Study for VISION on Validation Set
+python abblation_study/val_model_channel_spatial_both_abl.py
 ```
 
 ### 7. Transfer Learning on FLOREVIEW
