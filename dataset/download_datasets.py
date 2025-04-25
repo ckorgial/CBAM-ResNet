@@ -3,7 +3,7 @@ import requests
 from tqdm import tqdm
 
 # Set root directory for downloads
-root_download = '/media/blue/tsingalis/IARIADevIDFusion/datasets'
+root_download = ''
 
 def download_and_organize(urls, dataset_name):
     print(f"Downloading files for {dataset_name}...")
