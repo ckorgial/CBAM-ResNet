@@ -131,12 +131,12 @@ Each training script saves:
 This repository supports Grad-CAM visualizations for model interpretability.
 
 - A dedicated script `gradcam_vision_cbam.py` allows applying Grad-CAM using the **best training checkpoint from the CBAM-ResNet-based model**.
-- The model visualizes heatmaps over mel spectrograms, indicating regions contributing most to the classification decision.
+- The model visualizes heatmaps over log-Mel spectrograms, indicating regions contributing most to the classification decision.
 
 **Grad-CAM pipeline steps:**
 
 1. Load and preprocess a log-Mel spectrogram
-2. Load the best trained CBAM-ResNet-based model from this repo (e.g., `Results_test_cbam/best_model.h5`)
+2. Load the best trained CBAM-ResNet-based model from this repo (e.g., `./best_model.h5`)
 3. Extract features from the last convolutional layer
 5. Compute gradients and create a class-discriminative heatmap
 6. Overlay the heatmap on the original spectrogram for visualization
