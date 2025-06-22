@@ -1,383 +1,515 @@
 import os
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import layers, models
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix
+import random
+import matplotlib
+matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tensorflow.keras.preprocessing.image import img_to_array, array_to_img
-from tensorflow.keras.utils import plot_model
-from sklearn.model_selection import StratifiedShuffleSplit
-import pandas as pd
-from sklearn.metrics import roc_auc_score
+from tensorflow.keras import layers, models
+from sklearn.metrics import confusion_matrix, roc_curve, auc
 from sklearn.preprocessing import label_binarize
-from sklearn.metrics import roc_curve, auc
+from sklearn.utils.class_weight import compute_class_weight
+import pandas as pd
 
-# Set GPU memory fraction
-gpu_fraction = 0.5
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = gpu_fraction
-tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session(config=config))
-
-# Directory to save the models and reports
-save_dir = ''
-
-# Ensure the directory exists
-if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
-
-def split_equal_train_test(X_train, y_train, num_samples_per_class=10):
-    X_test = np.array([X_train[0]])
-    y_test = np.array([])
-
-    # Find indices for each class in the training set
-    for class_label in np.unique(y_train):
-        class_indices = np.where(y_train == class_label)[0]
-
-        # Randomly select specified number of samples for each class and move them to the testing set
-        selected_indices = np.random.choice(class_indices, size=num_samples_per_class, replace=False)
-        X_test = np.append(X_test, X_train[selected_indices], axis=0)
-        y_test = np.append(y_test, y_train[selected_indices], axis=0)
-        X_train = np.delete(X_train, selected_indices, axis=0)
-        y_train = np.delete(y_train, selected_indices, axis=0)
-
-    X_test = np.delete(X_test, [0], axis=0)
-    y_test = y_test.astype(int)
-
-    return X_train, X_test, y_train, y_test
-
-# Load your data (replace 'your_X_file.npy' and 'your_y_file.npy' with your actual file paths)
-X_flat = np.load('./X_flat.npy')
-y_flat = np.load('./y_flat.npy')
-
-y_flat = y_flat - 1
-
-X_indoor = np.load('./X_indoor.npy')
-y_indoor = np.load('./y_indoor.npy')
-
-y_indoor = y_indoor - 1
-
-X_outdoor = np.load('./X_outdoor.npy')
-y_outdoor = np.load('./y_outdoor.npy')
-
-y_outdoor = y_outdoor - 1
-
-# Expand the dimensions to include a channel (assuming your original spectrograms have shape (128, 300))
-X_flat_expanded = np.expand_dims(X_flat, axis=-1)
-X_indoor_expanded = np.expand_dims(X_indoor, axis=-1)
-X_outdoor_expanded = np.expand_dims(X_outdoor, axis=-1)
-
-# Resize spectrograms to meet ResNet input size (128x128)
-target_size = (128, 128)
-X_flat_resized = np.array([img_to_array(array_to_img(x).resize(target_size)) for x in X_flat_expanded])
-X_indoor_resized = np.array([img_to_array(array_to_img(x).resize(target_size)) for x in X_indoor_expanded])
-X_outdoor_resized = np.array([img_to_array(array_to_img(x).resize(target_size)) for x in X_outdoor_expanded])
-
-# Convert spectrograms to single-channel (grayscale)
-X_flat_grayscale = np.mean(X_flat_resized, axis=-1, keepdims=True)
-X_indoor_grayscale = np.mean(X_indoor_resized, axis=-1, keepdims=True)
-X_outdoor_grayscale = np.mean(X_outdoor_resized, axis=-1, keepdims=True)
-
-# Split the data into training, validation, and test sets
-X_flat_temp, X_flat_test, y_flat_temp, y_flat_test = split_equal_train_test(X_flat_grayscale, y_flat, num_samples_per_class=10)
-X_indoor_temp, X_indoor_test, y_indoor_temp, y_indoor_test = split_equal_train_test(X_indoor_grayscale, y_indoor, num_samples_per_class=10)
-X_outdoor_temp, X_outdoor_test, y_outdoor_temp, y_outdoor_test = split_equal_train_test(X_outdoor_grayscale, y_outdoor, num_samples_per_class=10)
-X_test = np.concatenate((X_flat_test, X_indoor_test, X_outdoor_test))
-y_test = np.concatenate((y_flat_test, y_indoor_test, y_outdoor_test))
-
-X_flat_train, X_flat_val, y_flat_train, y_flat_val = split_equal_train_test(X_flat_temp, y_flat_temp, num_samples_per_class=10)
-X_indoor_train, X_indoor_val, y_indoor_train, y_indoor_val = split_equal_train_test(X_indoor_temp, y_indoor_temp, num_samples_per_class=10)
-X_outdoor_train, X_outdoor_val, y_outdoor_train, y_outdoor_val = split_equal_train_test(X_outdoor_temp, y_outdoor_temp, num_samples_per_class=10)
-X_train = np.concatenate((X_flat_train, X_indoor_train, X_outdoor_train))
-y_train = np.concatenate((y_flat_train, y_indoor_train, y_outdoor_train))
-
-X_val = np.concatenate((X_flat_val, X_indoor_val, X_outdoor_val))
-y_val = np.concatenate((y_flat_val, y_indoor_val, y_outdoor_val))
-
-# Standardize the data
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train.reshape((X_train.shape[0], -1))).reshape(X_train.shape)
-X_val_scaled = scaler.transform(X_val.reshape((X_val.shape[0], -1))).reshape(X_val.shape)
-X_val_flat_scaled = scaler.transform(X_flat_val.reshape((X_flat_val.shape[0], -1))).reshape(X_flat_val.shape)
-X_val_indoor_scaled = scaler.transform(X_indoor_val.reshape((X_indoor_val.shape[0], -1))).reshape(X_indoor_val.shape)
-X_val_outdoor_scaled = scaler.transform(X_outdoor_val.reshape((X_outdoor_val.shape[0], -1))).reshape(X_outdoor_val.shape)
-
-X_test_scaled = scaler.transform(X_test.reshape((X_test.shape[0], -1))).reshape(X_test.shape)
-X_test_flat_scaled = scaler.transform(X_flat_test.reshape((X_flat_test.shape[0], -1))).reshape(X_flat_test.shape)
-X_test_indoor_scaled = scaler.transform(X_indoor_test.reshape((X_indoor_test.shape[0], -1))).reshape(X_indoor_test.shape)
-X_test_outdoor_scaled = scaler.transform(X_outdoor_test.reshape((X_outdoor_test.shape[0], -1))).reshape(X_outdoor_test.shape)
-
-def channel_attention(input_feature, ratio=8):
-    channel = input_feature.shape[-1]
-    shared_layer_one = layers.Dense(channel // ratio, activation='relu', kernel_initializer='he_normal', use_bias=True,
-                                    bias_initializer='zeros')
-    shared_layer_two = layers.Dense(channel, kernel_initializer='he_normal', use_bias=True, bias_initializer='zeros')
-
-    avg_pool = layers.GlobalAveragePooling2D()(input_feature)
-    avg_pool = layers.Reshape((1, 1, channel))(avg_pool)
-    assert avg_pool.shape[1:] == (1, 1, channel)
-    avg_pool = shared_layer_one(avg_pool)
-    assert avg_pool.shape[1:] == (1, 1, channel // ratio)
-    avg_pool = shared_layer_two(avg_pool)
-    assert avg_pool.shape[1:] == (1, 1, channel)
-
-    max_pool = layers.GlobalMaxPooling2D()(input_feature)
-    max_pool = layers.Reshape((1, 1, channel))(max_pool)
-    max_pool = shared_layer_one(max_pool)
-    max_pool = shared_layer_two(max_pool)
-
-    scale = layers.Add()([avg_pool, max_pool])
-    scale = layers.Activation('sigmoid')(scale)
-
-    return layers.Multiply()([input_feature, scale])
+# --- CONFIGURATION ---
+DATA_DIR = "./Splits"
+SAVE_DIR = "./Results"
+os.makedirs(SAVE_DIR, exist_ok=True)
+NUM_CLASSES = 35
+LABELS = [f'D{i+1:02}' for i in range(NUM_CLASSES)]
+SR = 44100
+HOP_LENGTH = 512
+PATCH_WIDTH = 128
+SCENES = ['flat', 'indoor', 'outdoor']
+SEED = 42
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
+random.seed(SEED)
+GRAD_DIR = os.path.join(SAVE_DIR, "gradcam")
+os.makedirs(GRAD_DIR, exist_ok=True)
+CBAM_DIR = os.path.join(SAVE_DIR, "cbam")
+os.makedirs(CBAM_DIR, exist_ok=True)
 
 
-def spatial_attention(input_feature):
-    kernel_size = 7
-    if input_feature.shape[-2] < kernel_size or input_feature.shape[-3] < kernel_size:
-        kernel_size = 3  # Adjust the kernel size to the shape of input feature map
 
-    avg_pool = layers.Lambda(lambda x: tf.reduce_mean(x, axis=-1, keepdims=True))(input_feature)
-    max_pool = layers.Lambda(lambda x: tf.reduce_max(x, axis=-1, keepdims=True))(input_feature)
-    concat = layers.Concatenate(axis=-1)([avg_pool, max_pool])
-    cbam_feature = layers.Conv2D(filters=1, kernel_size=kernel_size, strides=1, padding='same', activation='sigmoid',
-                                 kernel_initializer='he_normal', use_bias=False)(concat)
+# --- PATCH EXTRACTION ---
+def extract_patches(spectrogram, patch_width=128, stride=128):
+    if spectrogram.ndim == 4:
+        spectrogram = spectrogram.squeeze()
+    if spectrogram.ndim == 3 and spectrogram.shape[-1] == 1:
+        spectrogram = spectrogram.squeeze(-1)
+    if spectrogram.ndim == 3 and spectrogram.shape[0] == 1:
+        spectrogram = spectrogram.squeeze(0)
+    patches = []
+    for start in range(0, spectrogram.shape[1] - patch_width + 1, stride):
+        patch = spectrogram[:, start:start + patch_width]
+        patch = (patch - np.min(patch)) / (np.max(patch) - np.min(patch) + 1e-6)
+        if patch.ndim == 2:
+            patch = patch[..., None]
+        patches.append(patch)
+    return patches
 
-    return layers.Multiply()([input_feature, cbam_feature])
+# --- DATA LOADING ---
+def load_data(name):
+    X_raw = np.load(os.path.join(DATA_DIR, f"X_{name}.npy"))
+    y_raw = np.load(os.path.join(DATA_DIR, f"y_{name}.npy"))
+    if y_raw.max() == 35:
+        y_raw -= 1
+    X_patches, y_patches = [], []
+    for spectro, label in zip(X_raw, y_raw):
+        for patch in extract_patches(spectro, PATCH_WIDTH, PATCH_WIDTH):  # non-overlapping
+            X_patches.append(patch)
+            y_patches.append(label)
+    return np.stack(X_patches), np.array(y_patches)
 
+X_train, y_train = load_data("train")
+X_val, y_val = load_data("val")
+X_test, y_test = load_data("test")
 
-def build_resnet_cbam(input_shape, nof_classes):
-    inputs = tf.keras.Input(shape=input_shape)
+# --- MODEL (CBAM-ResNet) ---
+def cbam_block(x, filters, ratio=8, block_id=None):
+    suffix = f"_{block_id}" if block_id is not None else ""
+    avg_pool = layers.GlobalAveragePooling2D()(x)
+    max_pool = layers.GlobalMaxPooling2D()(x)
+    dense_1 = layers.Dense(filters // ratio, activation='relu')
+    dense_2 = layers.Dense(filters)
+    avg_out = dense_2(dense_1(avg_pool))
+    max_out = dense_2(dense_1(max_pool))
+    channel = layers.Add(name=f"channel_attention{suffix}")([avg_out, max_out])
+    channel = layers.Activation('sigmoid')(channel)
+    channel = layers.Reshape((1, 1, filters))(channel)
+    x = layers.Multiply()([x, channel])
+    avg_pool2 = tf.reduce_mean(x, axis=-1, keepdims=True)
+    max_pool2 = tf.reduce_max(x, axis=-1, keepdims=True)
+    concat = layers.Concatenate(axis=-1)([avg_pool2, max_pool2])
+    spatial = layers.Conv2D(1, 7, padding='same', activation='sigmoid', name=f"spatial_attention{suffix}")(concat)
+    x = layers.Multiply(name=f"cbam_multiply{suffix}")([x, spatial])
+    return x
 
-    # Initial convolution block
-    x = layers.Conv2D(64, (7, 7), strides=(2, 2), padding='same', activation='relu')(inputs)
-    x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
+def residual_block(x, filters, stride=1, block_id=None):
+    shortcut = x
+    x = layers.Conv2D(filters, 3, strides=stride, padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+    x = layers.Conv2D(filters, 3, padding='same')(x)
+    x = layers.BatchNormalization()(x)
+    if shortcut.shape[-1] != filters:
+        shortcut = layers.Conv2D(filters, 1, strides=stride, padding='same')(shortcut)
+        shortcut = layers.BatchNormalization()(shortcut)
+    x = layers.Add()([x, shortcut])
+    x = layers.ReLU()(x)
+    x = cbam_block(x, filters, block_id=block_id)
+    return x
 
-    # Residual blocks
-    for _ in range(3):
-        identity = x
-        x = layers.Conv2D(64, (1, 1), activation='relu', padding='same')(x)
-        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-        x = layers.Conv2D(256, (1, 1), activation=None, padding='same')(x)  # Identity mapping
-        identity = layers.Conv2D(256,(1, 1), activation=None, padding='same')(identity)
-        x = layers.Add()([x, identity])
-        x = layers.Activation('relu')(x)
-        x = channel_attention(x)
-        x = spatial_attention(x)
-
-    # Global average pooling and fully connected layers
+def build_cbam_resnet(input_shape, num_classes):
+    inputs = layers.Input(shape=input_shape)
+    x = layers.Conv2D(32, 7, strides=2, padding='same')(inputs)
+    x = layers.BatchNormalization()(x)
+    x = layers.ReLU()(x)
+    x = layers.MaxPooling2D(3, strides=2, padding='same')(x)
+    x = residual_block(x, 32, block_id=1)
+    x = residual_block(x, 64, block_id=2)
+    x = residual_block(x, 128, block_id=3)
     x = layers.GlobalAveragePooling2D()(x)
     x = layers.Dense(128, activation='relu')(x)
-    outputs = layers.Dense(nof_classes, activation='softmax')(x)
+    x = layers.Dropout(0.4)(x)
+    outputs = layers.Dense(num_classes, activation='softmax')(x)
+    return models.Model(inputs, outputs)
 
-    model = models.Model(inputs, outputs)
-    # model.summary()
-    return model
-
-# Build the ResNet model
-input_shape = (target_size[0], target_size[1], 1)  # Single-channel input
-resnet_model = build_resnet_cbam(input_shape, 35)
-
-# Plot and save the model architecture
-plot_model(resnet_model, to_file=os.path.join(save_dir, 'resnet_model.png'), show_shapes=True, show_layer_names=True)
-
-# Compile the model
-learning_rate = 1e-3
-beta_1 = 0.89
-beta_2 = 0.98
-
-adam_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=beta_1, beta_2=beta_2)
-
-resnet_model.compile(optimizer=adam_optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
-
-# Model Checkpoint to save the best model
-model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    os.path.join(save_dir, 'best_model.h5'),
-    monitor='val_accuracy',
-    save_best_only=True,
-    mode='max',
-    verbose=1
+model = build_cbam_resnet((128, 128, 1), NUM_CLASSES)
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(8e-5),
+    loss=tf.keras.losses.CategoricalCrossentropy(label_smoothing=0.1),
+    metrics=["accuracy"]
 )
 
-# Train the model with ModelCheckpoint
-history = resnet_model.fit(X_train_scaled, y_train, epochs=80
-                           , validation_data=(X_val_scaled, y_val), callbacks=[model_checkpoint])
+# --- TRAINING ---
+y_train_cat = tf.keras.utils.to_categorical(y_train, NUM_CLASSES)
+y_val_cat = tf.keras.utils.to_categorical(y_val, NUM_CLASSES)
+class_weights = compute_class_weight(class_weight='balanced', classes=np.unique(y_train), y=y_train)
+class_weights = dict(enumerate(class_weights))
+callbacks = [
+    tf.keras.callbacks.ModelCheckpoint(os.path.join(SAVE_DIR, "best_model.h5"), monitor="val_accuracy", save_best_only=True),
+    tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=6, restore_best_weights=True)
+]
+model.fit(
+    X_train, y_train_cat,
+    validation_data=(X_val, y_val_cat),
+    epochs=80, batch_size=32, class_weight=class_weights, callbacks=callbacks
+)
+model.save_weights(os.path.join(SAVE_DIR, "cbam_resnet_trained_weights.h5"))
 
-# Load the best model
-best_model = tf.keras.models.load_model(os.path.join(save_dir, 'best_model.h5'))
+# --- Save predictions for McNemar (Overall) ---
+print("Saving CBAM predictions and ground truth for McNemar's test...")
+y_pred_test = np.argmax(model.predict(X_test), axis=1)
+np.save(os.path.join(SAVE_DIR, "cbam_preds.npy"), y_pred_test)
+np.save(os.path.join(SAVE_DIR, "y_test.npy"), y_test)
 
-# Evaluate the model on the test set
-val_loss, val_acc = best_model.evaluate(X_val_scaled, y_val)
-print(f'Overall Validation Accuracy: {val_acc * 100:.2f}% on {X_val_scaled.shape[0]} samples')
-val_loss, val_acc = best_model.evaluate(X_val_flat_scaled, y_flat_val)
-print(f'Flat Validation Accuracy: {val_acc * 100:.2f}% on {X_val_flat_scaled.shape[0]} samples')
-val_loss, val_acc = best_model.evaluate(X_val_indoor_scaled, y_indoor_val)
-print(f'Indoor Validation Accuracy: {val_acc * 100:.2f}% on {X_val_indoor_scaled.shape[0]} samples')
-val_loss, val_acc = best_model.evaluate(X_val_outdoor_scaled, y_outdoor_val)
-print(f'Outdoor Validation Accuracy: {val_acc * 100:.2f}% on {X_val_outdoor_scaled.shape[0]} samples')
+# --- Save predictions for McNemar (Overall) ---
+print("Saving CBAM predictions and ground truth for McNemar's test...")
+y_pred_test = np.argmax(model.predict(X_test), axis=1)
+np.save(os.path.join(SAVE_DIR, "cbam_preds.npy"), y_pred_test)
+np.save(os.path.join(SAVE_DIR, "y_test.npy"), y_test)
 
-# Function to create confusion matrix and save the plot
-def create_confusion_matrix(X, y, title, save_path, labels_prefix):
-    y_pred = np.argmax(best_model.predict(X), axis=1)
-    conf_matrix = confusion_matrix(y, y_pred)
+# --- Save predictions per scenario (Flat, Indoor, Outdoor) ---
+scene_data = {}
+for scene in SCENES:
+    X_path = os.path.join(DATA_DIR, f"X_{scene}_test.npy")
+    y_path = os.path.join(DATA_DIR, f"y_{scene}_test.npy")
+    if os.path.exists(X_path) and os.path.exists(y_path):
+        Xs = np.load(X_path)
+        ys = np.load(y_path)
+        if ys.max() == 35:
+            ys -= 1
+        X_patches, y_patches = [], []
+        for spec, label in zip(Xs, ys):
+            for patch in extract_patches(spec, PATCH_WIDTH, PATCH_WIDTH):
+                X_patches.append(patch)
+                y_patches.append(label)
+        X_scene = np.stack(X_patches)
+        y_scene = np.array(y_patches)
+        scene_data[f"X_{scene}_test"] = X_scene
+        scene_data[f"y_{scene}_test"] = y_scene
+        y_pred_scene = np.argmax(model.predict(X_scene), axis=1)
+        np.save(os.path.join(SAVE_DIR, f"cbam_preds_{scene}.npy"), y_pred_scene)
+        np.save(os.path.join(SAVE_DIR, f"y_{scene}.npy"), y_scene)
+        print(f"✅ Saved predictions for scene: {scene}")
+    else:
+        print(f"⚠️ Scene data not found for: {scene}")
 
-    plt.figure(figsize=(12, 8))
-    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
-                xticklabels=[f'{labels_prefix}{i:02}' for i in range(1, 36)],
-                yticklabels=[f'{labels_prefix}{i:02}' for i in range(1, 36)])
+# --- EVALUATION ---
+def report_metrics(X, y, label):
+    preds = model.predict(X)
+    acc = np.mean(np.argmax(preds, axis=1) == y)
+    print(f"✅ {label} Accuracy: {acc:.2%}")
+    return acc
 
-    plt.title(title)
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.savefig(save_path)
+def create_confusion(X, y, label):
+    y_pred = np.argmax(model.predict(X), axis=1)
+    cm = confusion_matrix(y, y_pred, labels=np.arange(NUM_CLASSES))
+    plt.figure(figsize=(16, 12))
+    sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=LABELS, yticklabels=LABELS)
+    plt.title(f"Confusion Matrix - {label}")
+    plt.xlabel("Predicted")
+    plt.ylabel("True")
+    plt.tight_layout()
+    plt.savefig(os.path.join(SAVE_DIR, f"confusion_matrix_{label.lower().replace(' ', '_')}.png"))
     plt.close()
 
-# Create confusion matrices for different scenarios
-create_confusion_matrix(X_val_scaled, y_val, 'Confusion Matrix for Overall Validation Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_val_overall.png'), 'D')
-create_confusion_matrix(X_val_flat_scaled, y_flat_val, 'Confusion Matrix for Flat Validation Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_val_flat.png'), 'D')
-create_confusion_matrix(X_val_indoor_scaled, y_indoor_val, 'Confusion Matrix for Indoor Validation Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_val_indoor.png'), 'D')
-create_confusion_matrix(X_val_outdoor_scaled, y_outdoor_val, 'Confusion Matrix for Outdoor Validation Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_val_outdoor.png'), 'D')
+def plot_roc_curve_ovo(model, X, y, prefix, save_dir=SAVE_DIR, max_splits=5):
+    import numpy as np
+    import os
+    import matplotlib.pyplot as plt
+    from sklearn.model_selection import StratifiedKFold
+    from sklearn.preprocessing import label_binarize
+    from sklearn.metrics import roc_curve, auc
 
-# Evaluate the model on the test set
-test_loss, test_acc = best_model.evaluate(X_test_scaled, y_test)
-print(f'Overall Test Accuracy: {test_acc * 100:.2f}% on {X_test_scaled.shape[0]} samples')
-test_loss, test_acc = best_model.evaluate(X_test_flat_scaled, y_flat_test)
-print(f'Flat Test Accuracy: {test_acc * 100:.2f}% on {X_test_flat_scaled.shape[0]} samples')
-test_loss, test_acc = best_model.evaluate(X_test_indoor_scaled, y_indoor_test)
-print(f'Indoor Test Accuracy: {test_acc * 100:.2f}% on {X_test_indoor_scaled.shape[0]} samples')
-test_loss, test_acc = best_model.evaluate(X_test_outdoor_scaled, y_outdoor_test)
-print(f'Outdoor Test Accuracy: {test_acc * 100:.2f}% on {X_test_outdoor_scaled.shape[0]} samples')
+    # Binarize the labels for multiclass OvO ROC
+    y_bin = label_binarize(y, classes=np.arange(NUM_CLASSES))
 
-# Function to create confusion matrix and save the plot
-def create_confusion_matrix(X, y, title, save_path, labels_prefix):
-    y_pred = np.argmax(best_model.predict(X), axis=1)
-    conf_matrix = confusion_matrix(y, y_pred)
+    # Determine number of CV splits
+    unique, counts = np.unique(y, return_counts=True)
+    min_samples_per_class = counts.min()
+    n_splits = min(max_splits, min_samples_per_class)
+    if n_splits < 2:
+        print(f"⚠️ Too few samples for ROC AUC calculation in split '{prefix}'. Skipping.")
+        return
 
-    plt.figure(figsize=(12, 8))
-    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
-                xticklabels=[f'{labels_prefix}{i:02}' for i in range(1, 36)],
-                yticklabels=[f'{labels_prefix}{i:02}' for i in range(1, 36)])
-
-    plt.title(title)
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.savefig(save_path)
-    plt.close()
-
-    # Save confusion matrix as CSV
-    df_conf_matrix = pd.DataFrame(conf_matrix, index=[f'{labels_prefix}{i:02}' for i in range(1, 36)],
-                                  columns=[f'{labels_prefix}{i:02}' for i in range(1, 36)])
-    df_conf_matrix.to_csv(os.path.splitext(save_path)[0] + '.csv')
-
-# Create confusion matrices for different scenarios
-create_confusion_matrix(X_test_scaled, y_test, 'Confusion Matrix for Overall Test Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_test_overall.png'), 'D')
-create_confusion_matrix(X_test_flat_scaled, y_flat_test, 'Confusion Matrix for Flat Test Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_test_flat.png'), 'D')
-create_confusion_matrix(X_test_indoor_scaled, y_indoor_test, 'Confusion Matrix for Indoor Test Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_test_indoor.png'), 'D')
-create_confusion_matrix(X_test_outdoor_scaled, y_outdoor_test, 'Confusion Matrix for Overall Test Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_test_outdoor.png'), 'D')
-
-# Save the accuracy plot
-plt.plot(history.history['accuracy'], label='accuracy')
-plt.plot(history.history['val_accuracy'], label='val_accuracy')
-plt.xlabel('Epoch')
-plt.ylabel('Accuracy')
-plt.legend()
-plt.savefig(os.path.join(save_dir, 'accuracy_plot.png'))
-plt.close()
-
-# Compute AUC for the test set
-def compute_multiclass_auc(model, X, y, n_classes, labels_prefix, save_path):
-    # One-hot encode the true labels
-    y_one_hot = label_binarize(y, classes=range(n_classes))
-
-    # Get the predicted probabilities
-    y_pred_prob = model.predict(X)
-
-    # Compute AUC for each class
+    mean_fpr = np.linspace(0, 1, 100)
+    tprs = []
     aucs = []
-    for i in range(n_classes):
-        try:
-            auc = roc_auc_score(y_one_hot[:, i], y_pred_prob[:, i])
-            aucs.append(auc)
-        except ValueError:
-            # If AUC computation fails (e.g., if a class is not present in the data)
-            aucs.append(float('nan'))
+    cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=SEED)
 
-    # Average AUC across all classes
-    avg_auc = np.nanmean(aucs)
+    for train_idx, test_idx in cv.split(X, y):
+        y_score = model.predict(X[test_idx])
+        fpr, tpr, _ = roc_curve(y_bin[test_idx].ravel(), y_score.ravel())
+        tprs.append(np.interp(mean_fpr, fpr, tpr))
+        aucs.append(auc(fpr, tpr))
 
-    print(f"Average AUC for {labels_prefix} data: {avg_auc:.4f}")
+    mean_tpr = np.mean(tprs, axis=0)
+    mean_auc = np.mean(aucs)
 
-    # Save AUC scores for each class
-    auc_df = pd.DataFrame({"Class": [f"{labels_prefix}{i:02}" for i in range(n_classes)], "AUC": aucs})
-    auc_df.to_csv(save_path, index=False)
-    print(f"AUC results saved to: {save_path}")
+    # Find the optimal point: maximum TPR - FPR
+    optimal_idx = np.argmax(mean_tpr - mean_fpr)
+    optimal_fpr = mean_fpr[optimal_idx]
+    optimal_tpr = mean_tpr[optimal_idx]
 
+    # Plotting
+    plt.figure(figsize=(8, 6))
+    plt.plot(mean_fpr, mean_tpr, color='blue',
+             label=f'Avg ROC (AUC = {mean_auc:.3f})', lw=2, alpha=0.9)
+    plt.plot([0, 1], [0, 1], linestyle='--', color='gray', lw=1)
+    plt.scatter(optimal_fpr, optimal_tpr, c='red', s=70,
+                label=f'Optimal (FPR={optimal_fpr:.2f}, TPR={optimal_tpr:.2f})')
+    plt.xlabel("False Positive Rate")
+    plt.ylabel("True Positive Rate")
+    plt.title("OvO ROC Curve with Optimal Point")
+    plt.legend(loc="lower right")
+    plt.tight_layout()
 
-# Define the number of classes
-num_classes = 35
+    # Save figure
+    save_path = os.path.join(save_dir, f"roc_{prefix.lower().replace(' ', '_')}.png")
+    plt.savefig(save_path, dpi=150)
+    plt.close()
+    print(f"✅ Saved ROC-AUC plot for '{prefix}' to: {save_path}")
 
-# Compute and save AUC for test data
-compute_multiclass_auc(best_model, X_val_scaled, y_val, num_classes, 'Overall',
-                       os.path.join(save_dir, 'auc_overall_val_results.csv'))
-compute_multiclass_auc(best_model, X_val_flat_scaled, y_flat_val, num_classes, 'Flat',
-                       os.path.join(save_dir, 'auc_flat_val_results.csv'))
-compute_multiclass_auc(best_model, X_val_indoor_scaled, y_indoor_val, num_classes, 'Indoor',
-                       os.path.join(save_dir, 'auc_indoor_val_results.csv'))
-compute_multiclass_auc(best_model, X_val_outdoor_scaled, y_outdoor_val, num_classes, 'Outdoor',
-                       os.path.join(save_dir, 'auc_outdoor_val_results.csv'))
-
-
-# Define the number of classes and class names
-num_classes = 35
-class_names = [f'D{i+1}' for i in range(num_classes)]  # Generates names from D1 to D35
-
-# One-hot encode the validation labels
-y_val_one_hot = label_binarize(y_val, classes=range(num_classes))
-
-# Predict probabilities for the validation data
-y_pred_prob_val = best_model.predict(X_val_scaled)
-
-# Calculate AUC for each class
-auc_values = []
-plt.figure(figsize=(16, 12))
-for i in range(num_classes):
-    fpr, tpr, _ = roc_curve(y_val_one_hot[:, i], y_pred_prob_val[:, i])
-    roc_auc = auc(fpr, tpr)
-    auc_values.append(roc_auc)
-    plt.plot(fpr, tpr, lw=2, label=f'{class_names[i]} (AUC = {roc_auc:.3f})')
-# Calculate the overall multiclass AUC as the mean of the individual AUCs
-overall_multiclass_auc = np.mean(auc_values)
-# Plot the random guess line
-plt.plot([0, 1], [0, 1], 'k--', lw=2, label='Random Guess')
-# Add titles and labels
-plt.title(f'ROC Curves for the Overall Validation Data (One-vs-All)\n Multiclass AUC = {overall_multiclass_auc:.3f}', fontsize=16)
-plt.xlabel('False Positive Rate', fontsize=14)
-plt.ylabel('True Positive Rate', fontsize=14)
-plt.legend(loc='lower right', fontsize=12, ncol=2)  # Adjust ncol for compact legend
-plt.grid(alpha=0.3)
-plt.tight_layout()
-# Show the plot
-plt.show()
-
-# Print the exact number of samples in each set
-print(f"Number of samples in the Training Set: {X_train_scaled.shape[0]} (Classes: {np.unique(y_train, return_counts=True)})")
-print(f"Number of samples in the Validation Set: {X_val_scaled.shape[0]} (Classes: {np.unique(y_val, return_counts=True)})")
-print(f"Number of samples in the Test Set: {X_test_scaled.shape[0]} (Classes: {np.unique(y_test, return_counts=True)})")
-
-# Print class distribution for specific splits
-print(f"Class distribution in Training Set: {np.unique(y_train, return_counts=True)}")
-print(f"Class distribution in Validation Set: {np.unique(y_val, return_counts=True)}")
-print(f"Class distribution in Test Set: {np.unique(y_test, return_counts=True)}")
+    return mean_auc, optimal_fpr, optimal_tpr
 
 
-# Print a message indicating the save path
-print(f'Models and reports saved in: {save_dir}')
+# --- SCENE SPLITS (ALL PATCHES) ---
+scene_data = {}
+for split in ["train", "val", "test"]:
+    for scene in SCENES:
+        X_path = os.path.join(DATA_DIR, f"X_{scene}_{split}.npy")
+        y_path = os.path.join(DATA_DIR, f"y_{scene}_{split}.npy")
+        if os.path.exists(X_path) and os.path.exists(y_path):
+            Xs = np.load(X_path)
+            ys = np.load(y_path)
+            if ys.max() == 35:
+                ys -= 1
+            X_patches, y_patches = [], []
+            for spec, label in zip(Xs, ys):
+                for patch in extract_patches(spec, PATCH_WIDTH, PATCH_WIDTH):
+                    X_patches.append(patch)
+                    y_patches.append(label)
+            scene_data[f"X_{scene}_{split}"] = np.stack(X_patches)
+            scene_data[f"y_{scene}_{split}"] = np.array(y_patches)
+
+splits = [("Train Overall", X_train, y_train), ("Val Overall", X_val, y_val), ("Test Overall", X_test, y_test)]
+for split in ["train", "val", "test"]:
+    for scene in SCENES:
+        kx = f"X_{scene}_{split}"
+        ky = f"y_{scene}_{split}"
+        if kx in scene_data and ky in scene_data:
+            splits.append((f"{scene.capitalize()} {split.capitalize()}", scene_data[kx], scene_data[ky]))
+
+metrics_log = []
+for name, X_split, y_split in splits:
+    acc = report_metrics(X_split, y_split, name)
+    create_confusion(X_split, y_split, name)
+    plot_roc_curve_ovo(model, X_split, y_split, name)
+    try:
+        y_bin = label_binarize(y_split, classes=np.arange(NUM_CLASSES))
+        y_score = model.predict(X_split)
+        fpr, tpr, _ = roc_curve(y_bin.ravel(), y_score.ravel())
+        auc_val = auc(fpr, tpr)
+    except Exception:
+        auc_val = np.nan
+    metrics_log.append({"Split": name, "Accuracy": acc, "AUC": auc_val})
+
+df_metrics = pd.DataFrame(metrics_log)
+metrics_path = os.path.join(SAVE_DIR, "all_split_metrics.csv")
+df_metrics.to_csv(metrics_path, index=False)
+print(f"✅ Saved metrics to {metrics_path}")
+
+# --- EXPLAINABILITY (GRADCAM, CBAM ATTENTION) ---
+def get_last_conv_layer(model):
+    mult_layers = [l.name for l in model.layers if "multiply" in l.name]
+    if mult_layers:
+        return mult_layers[-1]
+    conv_layers = [l.name for l in model.layers if "conv2d" in l.name]
+    return conv_layers[-1] if conv_layers else None
+
+def compute_gradcam(model, sample, gradcam_layer):
+    x = sample[None, ...]
+    grad_model = tf.keras.Model([model.input], [model.get_layer(gradcam_layer).output, model.output])
+    with tf.GradientTape() as tape:
+        conv_output, preds = grad_model(x)
+        class_idx = np.argmax(preds[0])
+        loss = preds[:, class_idx]
+    grads = tape.gradient(loss, conv_output)[0]
+    pooled_grads = tf.reduce_mean(grads, axis=(0, 1))
+    conv_output = conv_output[0]
+    gradcam = tf.reduce_sum(conv_output * pooled_grads, axis=-1)
+    gradcam = np.maximum(gradcam, 0)
+    gradcam = gradcam / (gradcam.max() + 1e-8)
+    gradcam_resized = tf.image.resize(gradcam[..., None], sample.shape[:2]).numpy().squeeze()
+    return gradcam_resized
+
+
+import librosa
+import numpy as np
+
+
+def get_spec_axes(spec, sr=44100, hop_length=512, fmin=0, fmax=None):
+    """
+    Returns frequency and time axis arrays for a mel spectrogram.
+
+    Parameters:
+    - spec: 2D numpy array of shape (n_mels, time_bins)
+    - sr: Sampling rate (default: 44100)
+    - hop_length: Hop length used in STFT (default: 512)
+    - fmin: Minimum frequency for mel scale (default: 0 Hz)
+    - fmax: Maximum frequency for mel scale (default: sr/2)
+
+    Returns:
+    - freqs: Array of mel band center frequencies (y-axis)
+    - times: Array of times in seconds (x-axis)
+    """
+    n_mels, time_bins = spec.shape[:2]
+    if fmax is None:
+        fmax = sr // 2
+
+    freqs = librosa.mel_frequencies(n_mels=n_mels, fmin=fmin, fmax=fmax)
+    times = np.arange(time_bins) * hop_length / sr
+    return freqs, times
+
+def plot_spectrogram_and_gradcam(sample, gradcam_map, device_label, scenario, sr=SR, hop_length=HOP_LENGTH, save_dir=GRAD_DIR, dpi=150):
+    if sample.ndim == 3:
+        sample = sample.squeeze()
+    n_fft_bins, n_frames = sample.shape
+    freqs, times = get_spec_axes(sample, sr=sr, hop_length=hop_length)
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
+    vmin, vmax = sample.min(), sample.max()
+    # 1. Original spectrogram
+    im = axes[0].imshow(sample, aspect='auto', origin='lower', vmin=vmin, vmax=vmax,
+                        extent=[times[0], times[-1], freqs[0], freqs[-1]], cmap='magma')
+    axes[0].set_title('Original Spectrogram')
+    axes[0].set_ylabel('Frequency (Hz)')
+    axes[0].set_xlabel('Time (s)')
+    fig.colorbar(im, ax=axes[0])
+    # 2. Grad-CAM overlay
+    axes[1].imshow(sample, aspect='auto', origin='lower', vmin=vmin, vmax=vmax,
+                   extent=[times[0], times[-1], freqs[0], freqs[-1]], cmap='magma')
+    axes[1].imshow(gradcam_map, alpha=0.5, cmap='jet', aspect='auto', origin='lower',
+                   extent=[times[0], times[-1], freqs[0], freqs[-1]])
+    axes[1].set_title('Grad-CAM Overlay')
+    axes[1].set_xlabel('Time (s)')
+    axes[1].set_ylabel('Frequency (Hz)')
+    fig.colorbar(axes[1].images[1], ax=axes[1], label='Grad-CAM intensity')
+    plt.suptitle(f'Device {device_label} | Scenario: {scenario}', fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+    fname = f"gradcam_{device_label}_{scenario}.png"
+    save_path = os.path.join(save_dir, fname)
+    plt.savefig(save_path, dpi=dpi)
+    plt.close()
+
+def get_cbam_layer_names_and_conv(model, block_idx, expected_channels):
+    channel_layer = f"channel_attention_{block_idx}"
+    spatial_layer = f"spatial_attention_{block_idx}"
+    conv_layer_name = None
+    for l in model.layers:
+        if isinstance(l, tf.keras.layers.Conv2D) and l.output_shape[-1] == expected_channels:
+            conv_layer_name = l.name
+    if conv_layer_name is None:
+        raise ValueError(f"No Conv2D with {expected_channels} channels found for block {block_idx}")
+    return channel_layer, spatial_layer, conv_layer_name
+
+def plot_channel_attention_heatmap(channel_vec, save_path):
+    plt.figure(figsize=(8, 2))
+    plt.bar(np.arange(len(channel_vec)), channel_vec)
+    plt.xlabel("Channel Index")
+    plt.ylabel("Attention Weight")
+    plt.title("CBAM Channel Attention")
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+def plot_spatial_attention_map(spatial_map, spec, save_path, sr=SR, hop_length=HOP_LENGTH):
+    freq_bins, time_bins = spec.shape[:2]
+    if isinstance(spatial_map, tf.Tensor):
+        spatial_map = spatial_map.numpy()
+    spatial_map = np.squeeze(spatial_map)
+
+    print(f"[INFO] Spatial attention shape before resize: {spatial_map.shape}")
+    # Spatial attention maps are not necessarily square due to downsampling in the network.
+    # We resize them to (freq_bins, time_bins) to match the original spectrogram dimensions for visualization only.
+    spatial_map_up = tf.image.resize(spatial_map[..., np.newaxis], (freq_bins, time_bins)).numpy().squeeze()
+    print(f"[INFO] CBAM spatial attention shape AFTER resize: {spatial_map_up.shape}")
+    freqs, times = get_spec_axes(spec, sr=sr, hop_length=hop_length)
+    plt.figure(figsize=(7, 7))  # Ensures square canvas
+    plt.imshow(spatial_map_up, cmap='jet', aspect='auto', origin='lower',
+               extent=[times[0], times[-1], freqs[0], freqs[-1]])
+    plt.xlabel("Time (s)")
+    plt.ylabel("Frequency (Hz)")
+    plt.title("CBAM Spatial Attention")
+    plt.colorbar()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+def plot_combined_attention(feature_map, channel_attention, spatial_attention, spec, save_path, sr=SR, hop_length=HOP_LENGTH):
+    freq_bins, time_bins = spec.shape[:2]
+    if isinstance(channel_attention, tf.Tensor):
+        channel_attention = channel_attention.numpy()
+    if isinstance(spatial_attention, tf.Tensor):
+        spatial_attention = spatial_attention.numpy()
+    if isinstance(feature_map, tf.Tensor):
+        feature_map = feature_map.numpy()
+    ca = channel_attention.reshape(1, 1, -1)
+    sa = np.squeeze(spatial_attention)
+    att_map = feature_map * ca
+    att_map = att_map * sa[..., np.newaxis]
+    att_map_2d = np.mean(att_map, axis=-1)
+    att_map_2d_up = tf.image.resize(att_map_2d[..., np.newaxis], (freq_bins, time_bins)).numpy().squeeze()
+    freqs, times = get_spec_axes(spec, sr=sr, hop_length=hop_length)
+    plt.figure(figsize=(7, 7))
+    plt.imshow(att_map_2d_up, cmap="jet", aspect="auto", origin='lower',
+               extent=[times[0], times[-1], freqs[0], freqs[-1]])
+    plt.xlabel("Time (s)")
+    plt.ylabel("Frequency (Hz)")
+    plt.title("CBAM Combined Channel × Spatial Attention")
+    plt.colorbar()
+    plt.tight_layout()
+    plt.savefig(save_path)
+    plt.close()
+
+def extract_and_plot_cbam(model, X, y):
+    block_channels = {1: 32, 2: 64, 3: 128}
+    for block_idx in [1, 2, 3]:
+        n_channels = block_channels[block_idx]
+        channel_name, spatial_name, conv_name = get_cbam_layer_names_and_conv(model, block_idx, n_channels)
+        print(f"[CBAM Block {block_idx}] Layers: {channel_name}, {spatial_name}, {conv_name}")
+        channel_model = tf.keras.Model(model.input, model.get_layer(channel_name).output)
+        spatial_model = tf.keras.Model(model.input, model.get_layer(spatial_name).output)
+        conv_model = tf.keras.Model(model.input, model.get_layer(conv_name).output)
+        for cls in range(NUM_CLASSES):
+            indices = np.where(y == cls)[0]
+            if len(indices) == 0:
+                continue
+            sidx = indices[0]
+            patch = X[sidx]
+            label = LABELS[cls]
+            ch_path = os.path.join(CBAM_DIR, f"chatt_block{block_idx}_{label}_sample{sidx}.png")
+            sp_path = os.path.join(CBAM_DIR, f"spatt_block{block_idx}_{label}_sample{sidx}.png")
+            both_path = os.path.join(CBAM_DIR, f"bothatt_block{block_idx}_{label}_sample{sidx}.png")
+            patch_batched = patch[None, ...]
+            channel_attention = channel_model(patch_batched)[0]
+            plot_channel_attention_heatmap(channel_attention, save_path=ch_path)
+            spatial_attention = spatial_model(patch_batched)[0]
+            plot_spatial_attention_map(spatial_attention, patch.squeeze(), sp_path)
+            feature_map = conv_model(patch_batched)[0]
+            plot_combined_attention(feature_map, channel_attention, spatial_attention, patch.squeeze(), both_path)
+            print(f"Saved: {ch_path}, {sp_path}, {both_path}")
+
+# --- USAGE: GENERATE ATTENTION MAPS/GRADCAM FOR ALL SCENES/CLASSES ---
+for scene in SCENES:
+    X_key = f"X_{scene}_test"
+    y_key = f"y_{scene}_test"
+    if X_key not in scene_data or y_key not in scene_data:
+        print(f"No data for {scene}")
+        continue
+    X_split = scene_data[X_key]
+    y_split = scene_data[y_key]
+    for dev_idx in range(NUM_CLASSES):
+        indices = np.where(y_split == dev_idx)[0]
+        if len(indices) == 0:
+            continue
+        idx = indices[0]
+        sample = X_split[idx]
+        device_label = f"D{dev_idx+1:02}"
+        gradcam_layer = get_last_conv_layer(model)
+        gradcam_map = compute_gradcam(model, sample, gradcam_layer)
+        print(f"Saving Grad-CAM for {device_label} in {scene} to {GRAD_DIR}")
+        plot_spectrogram_and_gradcam(
+            sample, gradcam_map,
+            device_label=device_label,
+            scenario=scene,
+            sr=SR,
+            hop_length=HOP_LENGTH,
+            save_dir=GRAD_DIR
+        )
+print("✅ Grad-CAM images saved.")
+
+extract_and_plot_cbam(model, X_test, y_test)
