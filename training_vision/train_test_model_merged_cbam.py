@@ -1,242 +1,297 @@
 import os
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras import layers, models
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix
+import pandas as pd
+from tensorflow.keras import layers, models, regularizers
+from sklearn.metrics import classification_report, confusion_matrix
+from sklearn.preprocessing import LabelEncoder
+from sklearn.utils.class_weight import compute_class_weight
 import matplotlib.pyplot as plt
 import seaborn as sns
-from tensorflow.keras.preprocessing.image import img_to_array, array_to_img
-from tensorflow.keras.utils import plot_model
-from sklearn.model_selection import StratifiedShuffleSplit
-import pandas as pd
 
-# Set GPU memory fraction
-gpu_fraction = 0.5
-config = tf.compat.v1.ConfigProto()
-config.gpu_options.per_process_gpu_memory_fraction = gpu_fraction
-tf.compat.v1.keras.backend.set_session(tf.compat.v1.Session(config=config))
+# --- CONFIGURATION ---
+DATA_DIR = "./Splits_Merged"
+SAVE_DIR = "/Results_Merged"
+os.makedirs(SAVE_DIR, exist_ok=True)
 
-# Directory to save the models and reports
-save_dir = ''
+LABELS = [
+    'D01-D26', 'D02-D10', 'D03', 'D05-D14-D18', 'D06-D15',
+    'D07', 'D08', 'D09', 'D11', 'D13', 'D16', 'D19', 'D20',
+    'D21', 'D23', 'D24', 'D25', 'D27', 'D28', 'D29-D34',
+    'D30', 'D31', 'D32', 'D33', 'D35'
+]
 
-# Ensure the directory exists
-if not os.path.exists(save_dir):
-    os.makedirs(save_dir)
+# Constants
+PATCH_WIDTH = 128
+PATCH_HEIGHT = 128
+SEED = 42
+NUM_CLASSES = len(LABELS)
+np.random.seed(SEED)
+tf.random.set_seed(SEED)
 
-def split_equal_train_test(X_train, y_train, num_samples_per_class=30):
-    X_test = np.array([X_train[0]])
-    y_test = np.array([])
-
-    # Find indices for each class in the training set
-    for class_label in np.unique(y_train):
-        class_indices = np.where(y_train == class_label)[0]
-
-        # Randomly select specified number of samples for each class and move them to the testing set
-        selected_indices = np.random.choice(class_indices, size=num_samples_per_class, replace=False)
-        X_test = np.append(X_test, X_train[selected_indices], axis=0)
-        y_test = np.append(y_test, y_train[selected_indices], axis=0)
-        X_train = np.delete(X_train, selected_indices, axis=0)
-        y_train = np.delete(y_train, selected_indices, axis=0)
-
-    X_test = np.delete(X_test, [0], axis=0)
-    y_test = y_test.astype(int)
-
-    return X_train, X_test, y_train, y_test
-
-# Load your data (replace 'your_X_file.npy' and 'your_y_file.npy' with your actual file paths)
-X = np.load('./X.npy')
-y = np.load('./y.npy')
-
-# y = y - 1
-
-# Expand the dimensions to include a channel (assuming your original spectrograms have shape (128, 300))
-X_expanded = np.expand_dims(X, axis=-1)
-
-# Resize spectrograms to meet ResNet50 input size (128x128)
-target_size = (128, 128)
-X_resized = np.array([img_to_array(array_to_img(x).resize(target_size)) for x in X_expanded])
-
-# Convert spectrograms to single-channel (grayscale)
-X_grayscale = np.mean(X_resized, axis=-1, keepdims=True)
-
-# Split the data into training, validation, and test sets
-X_temp, X_test, y_temp, y_test = split_equal_train_test(X_grayscale, y, num_samples_per_class=30)
-X_train, X_val, y_train, y_val = split_equal_train_test(X_temp, y_temp, num_samples_per_class=30)
-
-# Standardize the data
-scaler = StandardScaler()
-X_train_scaled = scaler.fit_transform(X_train.reshape((X_train.shape[0], -1))).reshape(X_train.shape)
-X_val_scaled = scaler.transform(X_val.reshape((X_val.shape[0], -1))).reshape(X_val.shape)
-X_test_scaled = scaler.transform(X_test.reshape((X_test.shape[0], -1))).reshape(X_test.shape)
-
-def channel_attention(input_feature, ratio=8):
-    channel = input_feature.shape[-1]
-    shared_layer_one = layers.Dense(channel // ratio, activation='relu', kernel_initializer='he_normal', use_bias=True,
-                                    bias_initializer='zeros')
-    shared_layer_two = layers.Dense(channel, kernel_initializer='he_normal', use_bias=True, bias_initializer='zeros')
-
-    avg_pool = layers.GlobalAveragePooling2D()(input_feature)
-    avg_pool = layers.Reshape((1, 1, channel))(avg_pool)
-    assert avg_pool.shape[1:] == (1, 1, channel)
-    avg_pool = shared_layer_one(avg_pool)
-    assert avg_pool.shape[1:] == (1, 1, channel // ratio)
-    avg_pool = shared_layer_two(avg_pool)
-    assert avg_pool.shape[1:] == (1, 1, channel)
-
-    max_pool = layers.GlobalMaxPooling2D()(input_feature)
-    max_pool = layers.Reshape((1, 1, channel))(max_pool)
-    max_pool = shared_layer_one(max_pool)
-    max_pool = shared_layer_two(max_pool)
-
-    scale = layers.Add()([avg_pool, max_pool])
-    scale = layers.Activation('sigmoid')(scale)
-
-    return layers.Multiply()([input_feature, scale])
+# --- DATA AUGMENTATION ---
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.05),
+    layers.RandomZoom(0.1),
+    layers.RandomContrast(0.1)
+])
 
 
-def spatial_attention(input_feature):
-    kernel_size = 7
-    if input_feature.shape[-2] < kernel_size or input_feature.shape[-3] < kernel_size:
-        kernel_size = 3  # Adjust the kernel size to the shape of input feature map
+# --- CBAM ATTENTION MODULE ---
+def cbam_block(x, filters, ratio=8, block_id=None):
+    """Convolutional Block Attention Module (CBAM)"""
+    suffix = f"_{block_id}" if block_id is not None else ""
 
-    avg_pool = layers.Lambda(lambda x: tf.reduce_mean(x, axis=-1, keepdims=True))(input_feature)
-    max_pool = layers.Lambda(lambda x: tf.reduce_max(x, axis=-1, keepdims=True))(input_feature)
-    concat = layers.Concatenate(axis=-1)([avg_pool, max_pool])
-    cbam_feature = layers.Conv2D(filters=1, kernel_size=kernel_size, strides=1, padding='same', activation='sigmoid',
-                                 kernel_initializer='he_normal', use_bias=False)(concat)
+    # Channel attention
+    avg_pool = layers.GlobalAveragePooling2D(name=f"channel_avg_pool{suffix}")(x)
+    max_pool = layers.GlobalMaxPooling2D(name=f"channel_max_pool{suffix}")(x)
 
-    return layers.Multiply()([input_feature, cbam_feature])
+    dense_1 = layers.Dense(filters // ratio, activation='relu', name=f"channel_dense_1{suffix}")
+    dense_2 = layers.Dense(filters, name=f"channel_dense_2{suffix}")
+
+    avg_out = dense_2(dense_1(avg_pool))
+    max_out = dense_2(dense_1(max_pool))
+
+    channel = layers.Add(name=f"channel_add{suffix}")([avg_out, max_out])
+    channel = layers.Activation('sigmoid', name=f"channel_sigmoid{suffix}")(channel)
+    channel = layers.Reshape((1, 1, filters), name=f"channel_reshape{suffix}")(channel)
+    x = layers.Multiply(name=f"channel_multiply{suffix}")([x, channel])
+
+    # Spatial attention
+    avg_pool2 = tf.reduce_mean(x, axis=-1, keepdims=True, name=f"spatial_avg_pool{suffix}")
+    max_pool2 = tf.reduce_max(x, axis=-1, keepdims=True, name=f"spatial_max_pool{suffix}")
+    concat = layers.Concatenate(axis=-1, name=f"spatial_concat{suffix}")([avg_pool2, max_pool2])
+
+    spatial = layers.Conv2D(1, 7, padding='same', activation='sigmoid',
+                            name=f"spatial_conv{suffix}")(concat)
+    x = layers.Multiply(name=f"spatial_multiply{suffix}")([x, spatial])
+
+    return x
 
 
-def build_resnet_cbam(input_shape, nof_classes):
-    inputs = tf.keras.Input(shape=input_shape)
+# --- RESIDUAL BLOCK WITH CBAM ---
+def residual_block(x, filters, stride=1, block_id=None):
+    """Residual block with CBAM attention"""
+    shortcut = x
 
-    # Initial convolution block
-    x = layers.Conv2D(64, (7, 7), strides=(2, 2), padding='same', activation='relu')(inputs)
-    x = layers.MaxPooling2D((3, 3), strides=(2, 2), padding='same')(x)
+    x = layers.Conv2D(filters, 3, strides=stride, padding='same',
+                      kernel_regularizer=regularizers.l2(1e-4),
+                      name=f"res_{block_id}_conv1")(x)
+    x = layers.BatchNormalization(name=f"res_{block_id}_bn1")(x)
+    x = layers.ReLU(name=f"res_{block_id}_relu1")(x)
 
-    # Residual blocks
-    for _ in range(3):
-        identity = x
-        x = layers.Conv2D(64, (1, 1), activation='relu', padding='same')(x)
-        x = layers.Conv2D(64, (3, 3), activation='relu', padding='same')(x)
-        x = layers.Conv2D(256, (1, 1), activation=None, padding='same')(x)  # Identity mapping
-        identity = layers.Conv2D(256,(1, 1), activation=None, padding='same')(identity)
-        x = layers.Add()([x, identity])
-        x = layers.Activation('relu')(x)
-        x = channel_attention(x)
-        x = spatial_attention(x)
+    x = layers.Conv2D(filters, 3, padding='same',
+                      kernel_regularizer=regularizers.l2(1e-4),
+                      name=f"res_{block_id}_conv2")(x)
+    x = layers.BatchNormalization(name=f"res_{block_id}_bn2")(x)
 
-    # Global average pooling and fully connected layers
-    x = layers.GlobalAveragePooling2D()(x)
-    x = layers.Dense(128, activation='relu')(x)
-    outputs = layers.Dense(nof_classes, activation='softmax')(x)
+    if shortcut.shape[-1] != filters or stride > 1:
+        shortcut = layers.Conv2D(filters, 1, strides=stride, padding='same',
+                                 kernel_regularizer=regularizers.l2(1e-4),
+                                 name=f"res_{block_id}_shortcut_conv")(shortcut)
+        shortcut = layers.BatchNormalization(name=f"res_{block_id}_shortcut_bn")(shortcut)
 
-    model = models.Model(inputs, outputs)
-    # model.summary()
-    return model
+    x = layers.Add(name=f"res_{block_id}_add")([x, shortcut])
+    x = layers.ReLU(name=f"res_{block_id}_relu2")(x)
 
-# Build the ResNet model
-input_shape = (target_size[0], target_size[1], 1)  # Single-channel input
-resnet_model = build_resnet_cbam(input_shape, 25)
+    # Add CBAM attention
+    x = cbam_block(x, filters, block_id=block_id)
 
-# Plot and save the model architecture
-plot_model(resnet_model, to_file=os.path.join(save_dir, 'resnet50_model.png'), show_shapes=True, show_layer_names=True)
+    return x
 
-# Compile the model
-learning_rate = 1e-3
-beta_1 = 0.89
-beta_2 = 0.98
 
-adam_optimizer = tf.keras.optimizers.Adam(learning_rate=learning_rate, beta_1=beta_1, beta_2=beta_2)
+# --- CBAM-RESNET ARCHITECTURE ---
+def build_cbam_resnet(input_shape, num_classes):
+    """Build ResNet with CBAM attention modules"""
+    inputs = layers.Input(shape=input_shape)
+    x = data_augmentation(inputs)
 
-resnet_model.compile(optimizer=adam_optimizer, loss='sparse_categorical_crossentropy', metrics=['accuracy'])
+    # Initial stem
+    x = layers.Conv2D(32, 7, strides=2, padding='same',
+                      kernel_regularizer=regularizers.l2(1e-4),
+                      name="stem_conv")(x)
+    x = layers.BatchNormalization(name="stem_bn")(x)
+    x = layers.ReLU(name="stem_relu")(x)
+    x = layers.MaxPooling2D(3, strides=2, padding='same', name="stem_pool")(x)
 
-# Model Checkpoint to save the best model
-model_checkpoint = tf.keras.callbacks.ModelCheckpoint(
-    os.path.join(save_dir, 'best_model.h5'),
-    monitor='val_accuracy',
-    save_best_only=True,
-    mode='max',
+    # Residual blocks with CBAM
+    x = residual_block(x, 32, block_id=1)
+    x = residual_block(x, 32, block_id=2)
+
+    x = residual_block(x, 64, stride=2, block_id=3)
+    x = residual_block(x, 64, block_id=4)
+
+    x = residual_block(x, 128, stride=2, block_id=5)
+    x = residual_block(x, 128, block_id=6)
+
+    # Classifier head
+    x = layers.GlobalAveragePooling2D(name="final_pool")(x)
+    x = layers.Dense(128, activation='relu',
+                     kernel_regularizer=regularizers.l2(1e-3),
+                     name="final_dense1")(x)
+    x = layers.BatchNormalization(name="final_bn")(x)
+    x = layers.Dropout(0.8, name="final_dropout")(x)
+    outputs = layers.Dense(num_classes, activation='softmax', name="output")(x)
+
+    return models.Model(inputs, outputs, name="CBAM_ResNet")
+
+
+# --- DATA LOADING ---
+def extract_patches(spectrogram, patch_height=128, patch_width=128):
+    if spectrogram.ndim == 3:
+        spectrogram = spectrogram.squeeze(0)
+    patches = []
+    for start in range(0, spectrogram.shape[1] - patch_width + 1, patch_width):
+        patch = spectrogram[:patch_height, start:start + patch_width]
+        patch = (patch - np.min(patch)) / (np.max(patch) - np.min(patch) + 1e-6)
+        patch = patch[..., np.newaxis]
+        patches.append(patch)
+    return patches
+
+
+def load_data(name):
+    X_raw = np.load(os.path.join(DATA_DIR, f"X_{name}.npy"))
+    y_raw = np.load(os.path.join(DATA_DIR, f"y_{name}.npy"))
+    X_patches, y_patches = [], []
+    for spectro, label in zip(X_raw, y_raw):
+        patches = extract_patches(spectro)
+        X_patches.extend(patches)
+        y_patches.extend([label] * len(patches))
+    return np.stack(X_patches), np.array(y_patches)
+
+
+# Load data
+X_train, y_train = load_data("train")
+X_val, y_val = load_data("val")
+X_test, y_test = load_data("test")
+
+# --- LABEL PROCESSING ---
+label_encoder = LabelEncoder()
+label_encoder.fit(y_train)
+y_train = label_encoder.transform(y_train)
+y_val = label_encoder.transform(y_val)
+y_test = label_encoder.transform(y_test)
+
+# Compute class weights
+class_weights = compute_class_weight('balanced', classes=np.unique(y_train), y=y_train)
+class_weights = dict(enumerate(class_weights))
+
+# --- MODEL COMPILATION ---
+model = build_cbam_resnet((128, 128, 1), NUM_CLASSES)
+model.compile(
+    optimizer=tf.keras.optimizers.Adam(learning_rate=8e-5),
+    loss='sparse_categorical_crossentropy',
+    metrics=['accuracy']
+)
+
+# --- CALLBACKS ---
+callbacks = [
+    tf.keras.callbacks.ModelCheckpoint(
+        os.path.join(SAVE_DIR, "best_model.h5"),
+        monitor='val_accuracy',
+        save_best_only=True,
+        mode='max'
+    ),
+    tf.keras.callbacks.EarlyStopping(
+        monitor='val_loss',
+        patience=15,
+        restore_best_weights=True
+    ),
+    tf.keras.callbacks.ReduceLROnPlateau(
+        monitor='val_loss',
+        factor=0.5,
+        patience=5,
+        min_lr=1e-6
+    )
+]
+
+# --- TRAINING ---
+history = model.fit(
+    X_train, y_train,
+    validation_data=(X_val, y_val),
+    epochs=80,
+    batch_size=32,
+    callbacks=callbacks,
+    class_weight=class_weights,
     verbose=1
 )
 
-# Train the model with ModelCheckpoint
-history = resnet_model.fit(X_train_scaled, y_train, epochs=80, validation_data=(X_val_scaled, y_val), callbacks=[model_checkpoint])
 
-# Load the best model
-best_model = tf.keras.models.load_model(os.path.join(save_dir, 'best_model.h5'))
+# --- BLUE-STYLE CONFUSION MATRIX ---
+def create_confusion_matrix(X, y, label):
+    """Create and save blue-style confusion matrix"""
+    y_pred = np.argmax(model.predict(X, verbose=0), axis=1)
+    cm = confusion_matrix(y, y_pred, labels=np.arange(NUM_CLASSES))
 
-# Evaluate the model on the test set
-val_loss, val_acc = best_model.evaluate(X_val_scaled, y_val)
-print(f'Overall Validation Accuracy: {val_acc * 100:.2f}% on {X_val_scaled.shape[0]} samples')
+    plt.figure(figsize=(16, 14))
+    sns.heatmap(
+        cm,
+        annot=True,
+        fmt='d',
+        cmap='Blues',
+        xticklabels=LABELS,
+        yticklabels=LABELS,
+        annot_kws={'size': 8}
+    )
 
-# Function to create confusion matrix and save the plot
-def create_confusion_matrix(X, y, title, save_path, labels_prefix):
-    y_pred = np.argmax(best_model.predict(X), axis=1)
-    conf_matrix = confusion_matrix(y, y_pred)
+    accuracy = np.trace(cm) / np.sum(cm)
+    plt.title(f'Confusion Matrix - Test Overall', fontsize=14)
+    plt.xlabel('Predicted', fontsize=12)
+    plt.ylabel('True', fontsize=12)
+    plt.xticks(rotation=45, ha='right')
+    plt.yticks(rotation=0)
 
-    # Define custom labels based on the provided template
-    custom_labels = [
-        'D01-D26','D02-D10','D03','D05-D14-D18','D06-D15','D07','D08','D09','D11','D13','D16','D19','D20','D21','D23',
-        'D24','D25','D27','D28','D29-D34','D30','D31','D32','D33','D35']
-
-    plt.figure(figsize=(16, 12))
-    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
-                xticklabels=custom_labels,
-                yticklabels=custom_labels)
-    plt.title(title)
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.savefig(save_path)
+    plt.tight_layout()
+    filename = os.path.join(SAVE_DIR, f'confusion_matrix_{label.lower().replace(" ", "_")}.png')
+    plt.savefig(filename, dpi=300, bbox_inches='tight')
     plt.close()
 
-# Create confusion matrices for different scenarios
-create_confusion_matrix(X_val_scaled, y_val, 'Confusion Matrix for Overall Test Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_val_overall.png'), 'D')
-
-# Evaluate the model on the test set
-test_loss, test_acc = best_model.evaluate(X_test_scaled, y_test)
-print(f'Overall Test Accuracy: {test_acc * 100:.2f}% on {X_test_scaled.shape[0]} samples')
-
-# Function to create confusion matrix and save the plot
-def create_confusion_matrix(X, y, title, save_path, labels_prefix):
-    y_pred = np.argmax(best_model.predict(X), axis=1)
-    conf_matrix = confusion_matrix(y, y_pred)
-
-    # Define custom labels based on the provided template
-    custom_labels = [
-        'D01-D26','D02-D10','D03','D05-D14-D18','D06-D15','D07','D08','D09','D11','D13','D16','D19','D20','D21','D23',
-        'D24','D25','D27','D28','D29-D34','D30','D31','D32','D33','D35']
-
-    plt.figure(figsize=(16, 12))
-    sns.heatmap(conf_matrix, annot=True, fmt='d', cmap='Blues',
-                xticklabels=custom_labels,
-                yticklabels=custom_labels)
-    plt.title(title)
-    plt.xlabel('Predicted Label')
-    plt.ylabel('True Label')
-    plt.savefig(save_path)
-    plt.close()
-
-    # Save confusion matrix as CSV
-    df_conf_matrix = pd.DataFrame(conf_matrix, index=custom_labels, columns=custom_labels)
-    df_conf_matrix.to_csv(os.path.splitext(save_path)[0] + '.csv')
-
-# Create confusion matrices for different scenarios
-create_confusion_matrix(X_test_scaled, y_test, 'Confusion Matrix for Overall Test Data',
-                        os.path.join(save_dir, 'confusion_matrix_plot_test_overall.png'), 'D')
+    print(f'✅ Saved confusion matrix for {label} | Accuracy: {accuracy:.2%}')
 
 
-# Save the accuracy plot
-plt.plot(history.history['accuracy'], label='accuracy')
-plt.plot(history.history['val_accuracy'], label='val_accuracy')
-plt.xlabel('Epoch')
+# --- EVALUATION ---
+def evaluate_model(X, y, label):
+    y_pred = model.predict(X, verbose=0)
+    y_pred_classes = np.argmax(y_pred, axis=1)
+
+    accuracy = np.mean(y_pred_classes == y)
+    report = classification_report(y, y_pred_classes, target_names=LABELS, output_dict=True)
+
+    pd.DataFrame(report).transpose().to_csv(os.path.join(SAVE_DIR, f'{label}_report.csv'))
+    print(f'\n{label} Classification Report:')
+    print(classification_report(y, y_pred_classes, target_names=LABELS))
+
+    create_confusion_matrix(X, y, label)
+    return accuracy
+
+
+# Run evaluation
+train_acc = evaluate_model(X_train, y_train, "Train")
+val_acc = evaluate_model(X_val, y_val, "Validation")
+test_acc = evaluate_model(X_test, y_test, "Test")
+
+# Save training history
+plt.figure(figsize=(12, 5))
+plt.subplot(1, 2, 1)
+plt.plot(history.history['accuracy'], label='Train')
+plt.plot(history.history['val_accuracy'], label='Validation')
+plt.title('Model Accuracy')
 plt.ylabel('Accuracy')
+plt.xlabel('Epoch')
 plt.legend()
-plt.savefig(os.path.join(save_dir, 'accuracy_plot.png'))
+
+plt.subplot(1, 2, 2)
+plt.plot(history.history['loss'], label='Train')
+plt.plot(history.history['val_loss'], label='Validation')
+plt.title('Model Loss')
+plt.ylabel('Loss')
+plt.xlabel('Epoch')
+plt.legend()
+
+plt.tight_layout()
+plt.savefig(os.path.join(SAVE_DIR, 'training_history.png'))
 plt.close()
 
-# Print a message indicating the save path
-print(f'Models and reports saved in: {save_dir}')
+print('\n✅ Training complete! Results saved to:', SAVE_DIR)
+print(f'Final Accuracies: Train={train_acc:.2%}, Val={val_acc:.2%}, Test={test_acc:.2%}')
