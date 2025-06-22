@@ -16,8 +16,7 @@ This repository implements source device identification using log-mel spectrogra
 | `spectrogram_segmentation/`    | Create log-Mel Spectrogram Segments                                        |
 | `statistical_testing/`         | McNemar's statistical testing                                              |
 | `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
-| `transfer_learning_floreview/` | Fine-tune VISION models on FloreView dataset                               |
-| `transfer_learning_poliphone/` | Fine-tune VISION models on POLIPHONE dataset                               |
+| `transfer_learning/`           | Transfer Learning of VISION models on FloreView and POLIPHONE datasets     |
 
 ---
 
