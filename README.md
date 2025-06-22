@@ -11,7 +11,7 @@ This repository implements source device identification using log-mel spectrogra
 | `abblation_study/`             | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `dataset/`                     | VISION download                                                            |
-| `dataset_preperation/`         | Create Train, Validation, and Test Splits                                  |
+| `dataset_preperation/`         | Create disjoint Train, Validation, and Test Splits                         |
 | `spectrogram_generation/`      | Convert audio to log-Mel spectrograms                                      |
 | `spectrogram_segmentation/`    | Create log-Mel Spectrogram Segments                                        |
 | `statistical_testing/`         | McNemar's statistical testing                                              |
@@ -41,7 +41,7 @@ Also ensure `ffmpeg` is installed on your system for audio extraction.
 
 ## Pipeline Instructions
 
-### 1. VISION and FloreView Download
+### 1. VISION and FloreView Download - (NOTE: Download POLIPHONE manually)
 
 You can download the [VISION](https://lesc.dinfo.unifi.it/VISION/) and the [FloreView](https://lesc.dinfo.unifi.it/FloreView/) dataset using the script
 
@@ -71,12 +71,18 @@ python spectrogram_generation/POLIPHONE_mel.py
 ### 4. Create log-Mel Spectrograms Segments
 
 ```bash
+# For VISION dataset
+python spectrogram_segmentation/create_spectrogram_segments_vision.py
 
+# For FloreView dataset
+python spectrogram_segmentation/create_spectrogram_segments_floreview.py
 
+# For POLIPHONE dataset
+python spectrogram_segmentation/create_spectrogram_segments_poliphone.py
 ```
 
 
-### 5. Create Train, Validation, and Test Splits (.npy files)
+### 5. Create DISJOINT Train, Validation, and Test Splits (.npy files)
 
 ```bash
 # VISION (Standard)
@@ -87,6 +93,9 @@ python dataset_preperation/create_spectrogram_dataset_merged.py
 
 # FloreView (Standard)
 python dataset_preperation/create_floreview_spectrogram_dataset.py
+
+# POLIPHONE (Standard)
+python dataset_preperation/create_poliphone_spectrogram_dataset.py
 
 ```
 
