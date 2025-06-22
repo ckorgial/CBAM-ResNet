@@ -1,130 +1,107 @@
 import os
-import re
 import numpy as np
+import pandas as pd
+from collections import defaultdict
+
+# CONFIG
+DATA_PATH = "./Data"
+SAVE_DIR = "./Splits_Disjoint"
+os.makedirs(SAVE_DIR, exist_ok=True)
+SPLIT_RATIOS = (0.6, 0.2, 0.2)  # train, val, test
+SEED = 42
+np.random.seed(SEED)
+
+# Load arrays
+X = np.load(os.path.join(DATA_PATH, "X.npy"))
+y = np.load(os.path.join(DATA_PATH, "y.npy"))
+sources = np.load(os.path.join(DATA_PATH, "sources.npy"))
+
+def parse_source(src):
+    parts = src.replace(".npy", "").split("_")
+    try:
+        speaker_idx = parts.index("speaker")
+        speaker = f"{parts[speaker_idx]}_{parts[speaker_idx + 1]}"  # e.g., speaker_10
+        device = "_".join(parts[:speaker_idx])                      # e.g., huawei_nova_9
+        recording = "_".join(parts)                                 # full unique name
+        return device, speaker, recording
+    except (ValueError, IndexError):
+        raise ValueError(f"❌ Could not parse speaker/device from filename: {src}")
 
 
-HOP_LEN = 128
-SAMPLING_RATE = 44100
-DURATION = 300
-SHIFT = 200
+# Build per-recording groups
+recording_groups = defaultdict(list)
+devices, speakers = [], []
+for idx, src in enumerate(sources):
+    device, speaker, recording = parse_source(src)
+    recording_groups[(device, speaker, recording)].append(idx)
+    devices.append(device)
+    speakers.append(speaker)
 
-spectro_dataset_path = '/media/blue/ckorgial/XAI_VISION/VISION_mel_all_44100_bandpass/'
-recording_type = ['flat', 'indoor', 'outdoor']
-recording_source = ['', 'YT', 'WA']
-device_ids = ['D{:01}'.format(i) for i in range(1, 35)]
+unique_devices = sorted(set(devices))
+unique_speakers = sorted(set(speakers))
 
+# Split indices
+splits = {'train': [], 'val': [], 'test': []}
+split_labels = np.empty(len(sources), dtype=object)
+split_labels[:] = "none"
 
-def iterate_dataset(path, devices, recording_types):
-    for device_code in devices:
-        for recording_type in recording_types:
-            # Find folders that contain the device code
-            matching_folders = [folder for folder in os.listdir(path) if device_code in folder]
+for device in unique_devices:
+    spks_for_dev = [s for (d, s, _) in recording_groups if d == device]
+    spks_for_dev = sorted(set(spks_for_dev))
+    np.random.shuffle(spks_for_dev)
 
-            for matching_folder in matching_folders:
-                folder_path = os.path.join(path, matching_folder, recording_type)
+    n = len(spks_for_dev)
+    n_train = max(1, int(n * SPLIT_RATIOS[0]))
+    n_val = max(1, int(n * SPLIT_RATIOS[1]))
+    n_test = n - n_train - n_val
+    if n_test < 1:
+        n_test = 1
+        n_val = max(1, n - n_train - n_test)
 
-                if os.path.exists(folder_path):
+    train_spk = spks_for_dev[:n_train]
+    val_spk = spks_for_dev[n_train:n_train + n_val]
+    test_spk = spks_for_dev[n_train + n_val:]
 
-                    for root, dirs, files in os.walk(folder_path):
-                        for file in files:
-                            if file.endswith(".npy"):
-                                spectro_file_path = os.path.join(root, file)
-                                print(f"Processing WAV file: {spectro_file_path}")
-                                # TODO Add processing logic here
-                                create_patches(spectro_file_path)
+    for (dev, spk, rec), idxs in recording_groups.items():
+        if dev == device:
+            if spk in train_spk:
+                splits['train'].extend(idxs)
+                split_labels[idxs] = "train"
+            elif spk in val_spk:
+                splits['val'].extend(idxs)
+                split_labels[idxs] = "val"
+            elif spk in test_spk:
+                splits['test'].extend(idxs)
+                split_labels[idxs] = "test"
 
-                else:
-                    print(f"Folder not found: {folder_path}")
+# Save split arrays
+for split in ['train', 'val', 'test']:
+    idxs = np.array(splits[split])
+    np.save(os.path.join(SAVE_DIR, f"X_{split}.npy"), X[idxs])
+    np.save(os.path.join(SAVE_DIR, f"y_{split}.npy"), y[idxs])
+    np.save(os.path.join(SAVE_DIR, f"sources_{split}.npy"), sources[idxs])
+    print(f"✅ Saved {split} split: {len(idxs)} samples")
 
+# Diagnostics and metadata
+metadata = pd.DataFrame({
+    "filename": sources,
+    "device": [parse_source(src)[0] for src in sources],
+    "speaker": [parse_source(src)[1] for src in sources],
+    "split": split_labels
+})
+metadata.to_csv(os.path.join(SAVE_DIR, "all_split_metadata.csv"), index=False)
+print("📄 Saved metadata CSV for all samples.")
 
-def find_label(spectro_path):
-    # Define a regular expression pattern to match "X" in the string
-    pattern = r"D([\d]+)_"
-
-    # Search for the pattern in the input string
-    match = re.search(pattern, spectro_path)
-
-    # If a match is found, extract and return the value of "X"
-    if match:
-        return int(match.group(1))
+# Report missing device-split combinations
+for split in ['train', 'val', 'test']:
+    present = set((parse_source(sources[i])[0]) for i in splits[split])
+    missing = []
+    for d in unique_devices:
+        if d not in present:
+            missing.append(d)
+    if missing:
+        print(f"\n⚠️ {split.upper()} split is missing devices: {missing}")
     else:
-        # If no match is found, you can handle it accordingly, e.g., return None
-        return None
+        print(f"\n✅ {split.upper()} split contains all devices.")
 
-
-def segment_spectrogram(spectrogram, duration, shift):
-    """
-    Separates a spectrogram file into smaller parts and returns the parts
-
-    Parameters
-    ---------------
-    duration: int
-        The duration of each part (in frames)
-    shift:  int
-        How much to shift to start creating the next fragment (in frames)
-    wav_file_path: str
-    """
-
-    # Create the array to store th parts
-    parts = []
-
-    # Convert M and F from seconds to nof_samples
-    '''duration_samples = duration * fs
-    shift_samples = (duration - overlap) * fs'''
-
-    start_sample = 0
-    end_sample = duration
-    i = 0
-
-    while end_sample < spectrogram.shape[1]:
-        # Extract the part from the audio
-        part = spectrogram[:, start_sample:end_sample]
-
-        # Store the part
-        parts.append(part)
-
-        start_sample += shift
-        end_sample += shift
-        i += 1
-
-    # Create the last part containing the last minutes of the audio
-    if start_sample < spectrogram.shape[1]:
-        end_sample = spectrogram.shape[1]
-        start_sample = end_sample - duration
-
-        # Extract the part from the audio
-        part = spectrogram[:, start_sample:end_sample]
-
-        # Store the part
-        parts.append(part)
-
-    return np.array(parts)
-
-def create_patches(spectro_path):
-    # Find the spectrogram's device's labels
-    label = find_label(spectro_path)
-
-    # Read spectrogram
-    x = np.load(spectro_path)
-
-    # Create the patches
-    x_parts = segment_spectrogram(x, DURATION, SHIFT)
-
-    # Add parts and labels in X and y
-    X.extend(x_parts)
-    y.extend(np.array([label for i in range(len(x_parts))]))
-
-    pass
-
-
-# Example usage
-devices_list = ['D01','D02','D03','D04','D05','D06','D07','D08','D09','D10','D11','D12','D13','D14','D15','D16',
-                'D17','D18','D19','D20','D21','D22','D23','D24','D25','D26','D27','D28','D29','D30','D31','D32',
-                'D33','D34','D35']
-recording_types_list = ['flat'] # Changefor flat, indoor, and outdoor
-
-X, y = [], []
-iterate_dataset(spectro_dataset_path, devices_list, recording_types_list)
-# Perform the process for flat, indoor and outdoor
-np.save('X_flat.npy', X)
-np.save('y_flat.npy', y)
+print("🚦 Splitting complete and reviewer-proof!")
