@@ -104,7 +104,7 @@ python dataset_preperation/create_poliphone_spectrogram_dataset.py
 # Standard CBAM-ResNet
 python training_vision/train_test_model_cbam.py
 
-# Filtered CBAM-ResNet Variant
+# Merged CBAM-ResNet
 python training_vision/train_test_model_merged_cbam.py
 ```
 
@@ -125,10 +125,10 @@ python statistical_testing/mcnemars.py
 ### 8. Transfer Learning on FloreView and POLIPHONE
 
 ```bash
-# Device-wise transfer learning on FloreView
+# Transfer learning on FloreView
 python transfer_learning/transfer_cbam_floreview.py
 
-# Brand-wise transfer learning on POLIPHONE
+# Transfer learning on POLIPHONE
 python transfer_learning/transfer_cbam_poliphone.py
 ```
 
