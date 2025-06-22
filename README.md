@@ -11,7 +11,7 @@ This repository implements source device identification using log-mel spectrogra
 | `abblation_study/`             | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `dataset/`                     | VISION download                                                            |
-| `dataset_split/`               | Create Train, Validation, and Test Splits                                  |
+| `dataset_preperation/`         | Create Train, Validation, and Test Splits                                  |
 | `spectrogram_generation/`      | Convert audio to log-Mel spectrograms                                      |
 | `spectrogram_segmentation/`    | Create log-Mel Spectrogram Segments                                        |
 | `statistical_testing/`         | McNemar's statistical testing                                              |
@@ -65,6 +65,7 @@ python spectrogram_generation/VISION_mel.py
 python spectrogram_generation/Floreview_Flat_mel.py
 
 # For POLIPHONE dataset
+python spectrogram_generation/POLIPHONE_mel.py
 ```
 
 ### 4. Create log-Mel Spectrograms Segments
@@ -79,13 +80,13 @@ python spectrogram_generation/Floreview_Flat_mel.py
 
 ```bash
 # VISION (Standard)
-python dataset_split/create_spectrogram_dataset.py
+python dataset_preperation/create_spectrogram_dataset.py
 
 # VISION (Merged)
-python dataset_split/create_spectrogram_dataset_merged.py
+python dataset_preperation/create_spectrogram_dataset_merged.py
 
 # FloreView (Standard)
-python dataset_split/create_floreview_spectrogram_dataset.py
+python dataset_preperation/create_floreview_spectrogram_dataset.py
 
 ```
 
