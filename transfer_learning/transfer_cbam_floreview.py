@@ -11,7 +11,7 @@ from sklearn.utils.class_weight import compute_class_weight
 # --- CONFIGURATION ---
 DATA_DIR = "./Splits"
 SAVE_DIR = "./Results"
-VISION_WEIGHTS = "./Results/best_model.h5"
+VISION_WEIGHTS = "./CBAM-ResNet/Results/best_model.h5"
 NUM_CLASSES = 46
 PATCH_WIDTH = 128
 LABELS = [f"D{i+1:02}" for i in range(NUM_CLASSES)]
