@@ -5,7 +5,7 @@ from collections import defaultdict
 
 # CONFIG
 DATA_PATH = "./Data"
-SAVE_DIR = "./Splits_Disjoint"
+SAVE_DIR = "./Splits"
 os.makedirs(SAVE_DIR, exist_ok=True)
 SPLIT_RATIOS = (0.6, 0.2, 0.2)  # train, val, test
 SEED = 42
