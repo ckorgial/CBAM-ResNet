@@ -123,14 +123,14 @@ python abblation_study/val_model_channel_spatial_both_abl.py
 python statistical_testing/mcnemars.py
 ```
 
-### 8. Transfer Learning on FLOREVIEW
+### 8. Transfer Learning on FloreView and POLIPHONE
 
 ```bash
-# Device-wise fine-tuning
-python transfer_learning_floreview/transfer_cbam.py
+# Device-wise transfer learning on FloreView
+python transfer_learning/transfer_cbam_floreview.py
 
-# Brand-wise fine-tuning
-python transfer_learning_floreview/transfer_cbam_brand.py
+# Brand-wise transfer learning on POLIPHONE
+python transfer_learning/transfer_cbam_poliphone.py
 ```
 
 ---
@@ -143,6 +143,7 @@ Each training script saves:
 - Confusion matrices (as PNG and CSV)
 - Accuracy trend plots
 - Class-wise performance evaluation (AUC, Classification metrics)
+- Grad-CAM Heatmaps for randomly selected log-Mel spectrogram patches for every device and scenario
 
 ---
 
