@@ -1,105 +1,108 @@
+# === create_train_val_test_data_brand_disjoint_balanced.py ===
 import os
-import re
 import numpy as np
+import pandas as pd
+from collections import defaultdict
+import matplotlib.pyplot as plt
+import seaborn as sns
 
-# Parameters for spectrogram segmentation
-HOP_LEN = 128
-SAMPLING_RATE = 44100
-DURATION = 300  # Duration in frames for each patch
-SHIFT = 200  # Shift in frames between patches
+# --- Configuration ---
+DATA_PATH = "./Data"
+SAVE_DIR = "./Splits"
+VIS_DIR = os.path.join(SAVE_DIR, "visualizations")
+os.makedirs(SAVE_DIR, exist_ok=True)
+os.makedirs(VIS_DIR, exist_ok=True)
 
-spectro_dataset_path = ''
+SPLIT_RATIOS = (0.6, 0.2, 0.2)
+SEED = 42
+MAX_SAMPLES_PER_BRAND = 3000  # Cap total samples per brand to avoid Apple domination
+np.random.seed(SEED)
 
-# Define device classes
-device_ids = [f'D{str(i).zfill(2)}' for i in range(1, 47)]
+# --- Load Data ---
+X = np.load(os.path.join(DATA_PATH, "X.npy"))
+y = np.load(os.path.join(DATA_PATH, "y.npy"))
+sources = np.load(os.path.join(DATA_PATH, "sources.npy"))
+brands = np.load(os.path.join(DATA_PATH, "brands.npy"))
 
+# --- Helper Functions ---
+def parse_source(src):
+    parts = src.replace('.npy', '').split('_')
+    return parts[0], parts[1], parts[2]  # brand, device, recording
 
-def iterate_dataset(path, devices):
-    for device_code in devices:
-        # Find folders that match the device code
-        matching_folders = [folder for folder in os.listdir(path) if device_code in folder]
+def plot_brand_distribution(metadata, title, filename):
+    plt.figure(figsize=(12, 6))
+    brand_counts = metadata.groupby(['brand', 'split']).size().unstack()
+    brand_counts.plot(kind='bar', stacked=True)
+    plt.title(title)
+    plt.ylabel("Number of Samples")
+    plt.xlabel("Brand")
+    plt.xticks(rotation=45)
+    plt.tight_layout()
+    plt.savefig(os.path.join(VIS_DIR, filename))
+    plt.close()
 
-        for matching_folder in matching_folders:
-            folder_path = os.path.join(path, matching_folder)
+# --- Group by Recording (for disjoint split) ---
+recording_groups = defaultdict(list)
+metadata_records = []
 
-            if os.path.exists(folder_path):
-                for root, _, files in os.walk(folder_path):
-                    for file in files:
-                        if file.endswith(".npy"):
-                            spectro_file_path = os.path.join(root, file)
-                            print(f"Processing spectrogram file: {spectro_file_path}")
-                            create_patches(spectro_file_path)
-            else:
-                print(f"Folder not found: {folder_path}")
+for idx, src in enumerate(sources):
+    brand, device, recording = parse_source(src)
+    key = (brand, device, recording)
+    recording_groups[key].append(idx)
+    metadata_records.append((src, brand, device, recording, y[idx]))
 
-def find_label(spectro_path):
-    # Define a regular expression pattern to match the device label
-    pattern = r"D([\d]+)_"
+metadata_df = pd.DataFrame(metadata_records, columns=["filename", "brand", "device", "recording", "class"])
 
-    # Search for the pattern in the input string
-    match = re.search(pattern, spectro_path)
+# --- Split per Brand ---
+splits = {'train': [], 'val': [], 'test': []}
+split_labels = np.empty(len(sources), dtype=object)
+split_labels[:] = "none"
 
-    if match:
-        return int(match.group(1))
-    else:
-        return None
+brand_recording_keys = defaultdict(list)
+for key in recording_groups:
+    brand = key[0]
+    brand_recording_keys[brand].append(key)
 
-def segment_spectrogram(spectrogram, duration, shift):
-    """
-    Separates a spectrogram file into smaller parts and returns the parts
+for brand, rec_keys in brand_recording_keys.items():
+    np.random.shuffle(rec_keys)
 
-    Parameters
-    ---------------
-    spectrogram: np.ndarray
-        The input spectrogram.
-    duration: int
-        The duration of each part (in frames).
-    shift: int
-        How much to shift to start creating the next fragment (in frames).
+    if len(rec_keys) < 3:
+        print(f"⚠️ Brand {brand} has only {len(rec_keys)} recordings – skipping.")
+        continue
 
-    Returns
-    ---------------
-    np.ndarray
-        An array containing the segmented spectrogram patches.
-    """
-    parts = []
+    n_total = len(rec_keys)
+    n_train = max(1, int(n_total * SPLIT_RATIOS[0]))
+    n_val = max(1, int(n_total * SPLIT_RATIOS[1]))
+    n_test = max(1, n_total - n_train - n_val)
 
-    start_sample = 0
-    end_sample = duration
+    if n_test == 0:
+        n_train -= 1
+        n_test = 1
 
-    while end_sample < spectrogram.shape[1]:
-        part = spectrogram[:, start_sample:end_sample]
-        parts.append(part)
+    train_keys = rec_keys[:n_train]
+    val_keys = rec_keys[n_train:n_train + n_val]
+    test_keys = rec_keys[n_train + n_val:]
 
-        start_sample += shift
-        end_sample += shift
+    for split_name, split_keys in zip(['train', 'val', 'test'], [train_keys, val_keys, test_keys]):
+        indices = []
+        for key in split_keys:
+            indices.extend(recording_groups[key])
+        np.random.shuffle(indices)
+        indices = indices[:MAX_SAMPLES_PER_BRAND // 3]  # limit per brand per split
+        splits[split_name].extend(indices)
+        split_labels[indices] = split_name
 
-    if start_sample < spectrogram.shape[1]:
-        end_sample = spectrogram.shape[1]
-        start_sample = max(0, end_sample - duration)
-        part = spectrogram[:, start_sample:end_sample]
-        parts.append(part)
+# --- Save Splits ---
+for split_name in ['train', 'val', 'test']:
+    indices = np.array(splits[split_name])
+    np.save(os.path.join(SAVE_DIR, f"X_{split_name}.npy"), X[indices])
+    np.save(os.path.join(SAVE_DIR, f"y_{split_name}.npy"), y[indices])
+    print(f"✅ Saved {split_name} split with {len(indices)} samples")
 
-    return np.array(parts)
+# --- Save Metadata ---
+metadata_df["split"] = split_labels
+metadata_df.to_csv(os.path.join(SAVE_DIR, "all_split_metadata.csv"), index=False)
+print("📄 Saved metadata with split labels")
 
-def create_patches(spectro_path):
-    label = find_label(spectro_path)
-    if label is None:
-        print(f"No label found for {spectro_path}, skipping.")
-        return
-
-    x = np.load(spectro_path)
-    x_parts = segment_spectrogram(x, DURATION, SHIFT)
-
-    X.extend(x_parts)
-    y.extend([label] * len(x_parts))
-
-if __name__ == "__main__":
-    X, y = [], []
-    iterate_dataset(spectro_dataset_path, device_ids)
-
-    # Save the segmented spectrogram dataset and labels
-    np.save('X_FloreView.npy', X)
-    np.save('y_FloreView.npy', y)
-    print("Dataset creation complete.")
-
+# --- Visualization ---
+plot_brand_distribution(metadata_df, "Brand Distribution Across Splits", "brand_distribution.png")
