@@ -8,7 +8,7 @@ This repository implements source device identification using log-mel spectrogra
 
 | Folder                         | Description                                                                |
 | ------------------------------ | -------------------------------------------------------------------------- |
-| `abblation_study/`             | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
+| `a blation_study/`             | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `dataset/`                     | VISION download                                                            |
 | `dataset_preperation/`         | Create disjoint Train, Validation, and Test Splits                         |
@@ -112,17 +112,17 @@ python training_vision/train_test_model_merged_cbam.py
 
 ```bash
 # Ablation Study for VISION on Validation Set
-python abblation_study/val_model_channel_spatial_both_abl.py
+python ablation_study/abl_cbam_resnet_patch.py
 ```
 
-### 7. Statistical Testing
+### 8. Statistical Testing
 
 ```bash
 # McNemar's statistical testing
 python statistical_testing/mcnemars.py
 ```
 
-### 8. Transfer Learning on FloreView and POLIPHONE
+### 9. Transfer Learning on FloreView and POLIPHONE
 
 ```bash
 # Transfer learning on FloreView
