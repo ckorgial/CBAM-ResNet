@@ -8,7 +8,7 @@ This repository implements source device identification using log-mel spectrogra
 
 | Folder                         | Description                                                                |
 | ------------------------------ | -------------------------------------------------------------------------- |
-| `a blation_study/`             | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
+| `ablation_study/`              | Ablation Study on VISION dataset (channel, spatial, & both modules)        |
 | `audio_extraction/`            | Extract audio from videos using FFmpeg                                     |
 | `dataset/`                     | VISION download                                                            |
 | `dataset_preperation/`         | Create disjoint Train, Validation, and Test Splits                         |
