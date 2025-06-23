@@ -36,6 +36,10 @@ opencv-python
 
 Also ensure `ffmpeg` is installed on your system for audio extraction.
 
+```bash
+python -m venv cbam-resnet && sourcecbam-resnet/bin/activate && pip install -r requirements.txt
+```
+
 ---
 
 ## Pipeline Instructions
