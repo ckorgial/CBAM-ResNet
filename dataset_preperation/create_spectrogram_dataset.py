@@ -3,105 +3,118 @@ import numpy as np
 import pandas as pd
 from collections import defaultdict
 
-# CONFIG
+# === Paths and Settings ===
 DATA_PATH = "./Data"
 SAVE_DIR = "./Splits"
 os.makedirs(SAVE_DIR, exist_ok=True)
-SPLIT_RATIOS = (0.6, 0.2, 0.2)  # train, val, test
 SEED = 42
 np.random.seed(SEED)
 
-# Load arrays
+# === Load dataset ===
 X = np.load(os.path.join(DATA_PATH, "X.npy"))
 y = np.load(os.path.join(DATA_PATH, "y.npy"))
 sources = np.load(os.path.join(DATA_PATH, "sources.npy"))
 
+if y.min() == 1 and y.max() == 35:
+    y = y - 1
+
+# === Define target ratios and exact counts ===
+total = len(sources)
+target_counts = {
+    "train": int(total * 0.55),
+    "val": int(total * 0.15),
+    "test": total - int(total * 0.55) - int(total * 0.15),
+}
+print("✅ Target counts:", target_counts)
+
+# === Parse source and group by recording ===
 def parse_source(src):
-    parts = src.replace(".npy", "").split("_")
-    try:
-        speaker_idx = parts.index("speaker")
-        speaker = f"{parts[speaker_idx]}_{parts[speaker_idx + 1]}"  # e.g., speaker_10
-        device = "_".join(parts[:speaker_idx])                      # e.g., huawei_nova_9
-        recording = "_".join(parts)                                 # full unique name
-        return device, speaker, recording
-    except (ValueError, IndexError):
-        raise ValueError(f"❌ Could not parse speaker/device from filename: {src}")
+    parts = src.split('_')
+    scene = parts[0]
+    device = parts[1]
+    recording = '_'.join(parts[2:]).replace('.npy', '')
+    return scene, device, recording
 
+recording_to_indices = defaultdict(list)
+scenes = []
 
-# Build per-recording groups
-recording_groups = defaultdict(list)
-devices, speakers = [], []
 for idx, src in enumerate(sources):
-    device, speaker, recording = parse_source(src)
-    recording_groups[(device, speaker, recording)].append(idx)
-    devices.append(device)
-    speakers.append(speaker)
+    scene, device, recording = parse_source(src)
+    recording_to_indices[(device, scene, recording)].append(idx)
+    scenes.append(scene)
 
-unique_devices = sorted(set(devices))
-unique_speakers = sorted(set(speakers))
+unique_scenes = sorted(set(scenes))
 
-# Split indices
+# === Build per-scene recording groups ===
+scene_recordings = defaultdict(list)
+scene_counts = {scene: 0 for scene in unique_scenes}
+for rec_key, indices in recording_to_indices.items():
+    scene = rec_key[1]
+    scene_recordings[scene].append((rec_key, indices))
+    scene_counts[scene] += len(indices)
+
+# === Compute per-scene target counts ===
+scene_targets = {
+    scene: {
+        split: int(target_counts[split] * (scene_counts[scene] / sum(scene_counts.values())))
+        for split in ["train", "val", "test"]
+    }
+    for scene in unique_scenes
+}
+
+# === Initialize splits ===
 splits = {'train': [], 'val': [], 'test': []}
 split_labels = np.empty(len(sources), dtype=object)
 split_labels[:] = "none"
+counters = {'train': 0, 'val': 0, 'test': 0}
 
-for device in unique_devices:
-    spks_for_dev = [s for (d, s, _) in recording_groups if d == device]
-    spks_for_dev = sorted(set(spks_for_dev))
-    np.random.shuffle(spks_for_dev)
+# === Allocate recordings per scene ===
+for scene in unique_scenes:
+    recs = scene_recordings[scene]
+    recs.sort(key=lambda item: len(item[1]), reverse=True)
+    local_counts = {'train': 0, 'val': 0, 'test': 0}
+    local_target = scene_targets[scene]
 
-    n = len(spks_for_dev)
-    n_train = max(1, int(n * SPLIT_RATIOS[0]))
-    n_val = max(1, int(n * SPLIT_RATIOS[1]))
-    n_test = n - n_train - n_val
-    if n_test < 1:
-        n_test = 1
-        n_val = max(1, n - n_train - n_test)
+    for rec_key, indices in recs:
+        rec_len = len(indices)
+        assigned = False
+        for split in ['train', 'val', 'test']:
+            if local_counts[split] + rec_len <= local_target[split]:
+                splits[split].extend(indices)
+                split_labels[indices] = split
+                local_counts[split] += rec_len
+                counters[split] += rec_len
+                assigned = True
+                break
+        if not assigned:
+            remain = {k: local_target[k] - local_counts[k] for k in ['train', 'val', 'test']}
+            best_split = max(remain, key=remain.get)
+            splits[best_split].extend(indices)
+            split_labels[indices] = best_split
+            local_counts[best_split] += rec_len
+            counters[best_split] += rec_len
 
-    train_spk = spks_for_dev[:n_train]
-    val_spk = spks_for_dev[n_train:n_train + n_val]
-    test_spk = spks_for_dev[n_train + n_val:]
-
-    for (dev, spk, rec), idxs in recording_groups.items():
-        if dev == device:
-            if spk in train_spk:
-                splits['train'].extend(idxs)
-                split_labels[idxs] = "train"
-            elif spk in val_spk:
-                splits['val'].extend(idxs)
-                split_labels[idxs] = "val"
-            elif spk in test_spk:
-                splits['test'].extend(idxs)
-                split_labels[idxs] = "test"
-
-# Save split arrays
+# === Save split arrays ===
 for split in ['train', 'val', 'test']:
     idxs = np.array(splits[split])
     np.save(os.path.join(SAVE_DIR, f"X_{split}.npy"), X[idxs])
     np.save(os.path.join(SAVE_DIR, f"y_{split}.npy"), y[idxs])
-    np.save(os.path.join(SAVE_DIR, f"sources_{split}.npy"), sources[idxs])
-    print(f"✅ Saved {split} split: {len(idxs)} samples")
+    print(f"✅ [Disjoint] Saved {split} split with {len(idxs)} samples")
 
-# Diagnostics and metadata
+# === Save per-scene-per-split arrays ===
+for split in ['train', 'val', 'test']:
+    for scene in unique_scenes:
+        idxs = [i for i in splits[split] if parse_source(sources[i])[0] == scene]
+        np.save(os.path.join(SAVE_DIR, f"X_{scene}_{split}.npy"), X[idxs])
+        np.save(os.path.join(SAVE_DIR, f"y_{scene}_{split}.npy"), y[idxs])
+        print(f"✅ [Disjoint] Saved: X_{scene}_{split}.npy with {len(idxs)} samples")
+
+# === Save metadata ===
 metadata = pd.DataFrame({
     "filename": sources,
-    "device": [parse_source(src)[0] for src in sources],
-    "speaker": [parse_source(src)[1] for src in sources],
+    "device": [parse_source(src)[1] for src in sources],
+    "scene": [parse_source(src)[0] for src in sources],
     "split": split_labels
 })
-metadata.to_csv(os.path.join(SAVE_DIR, "all_split_metadata.csv"), index=False)
-print("📄 Saved metadata CSV for all samples.")
-
-# Report missing device-split combinations
-for split in ['train', 'val', 'test']:
-    present = set((parse_source(sources[i])[0]) for i in splits[split])
-    missing = []
-    for d in unique_devices:
-        if d not in present:
-            missing.append(d)
-    if missing:
-        print(f"\n⚠️ {split.upper()} split is missing devices: {missing}")
-    else:
-        print(f"\n✅ {split.upper()} split contains all devices.")
-
-print("🚦 Splitting complete and reviewer-proof!")
+metadata.to_csv(os.path.join(SAVE_DIR, "all_split_metadata_disjoint.csv"), index=False)
+print("📄 [Disjoint] Saved metadata for all samples")
