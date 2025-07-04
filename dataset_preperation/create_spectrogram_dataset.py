@@ -2,6 +2,7 @@ import os
 import numpy as np
 import pandas as pd
 from collections import defaultdict
+from sklearn.utils import shuffle
 
 # === Paths and Settings ===
 DATA_PATH = "./Data"
@@ -15,19 +16,15 @@ X = np.load(os.path.join(DATA_PATH, "X.npy"))
 y = np.load(os.path.join(DATA_PATH, "y.npy"))
 sources = np.load(os.path.join(DATA_PATH, "sources.npy"))
 
+# === Ensure labels are 0-based
 if y.min() == 1 and y.max() == 35:
     y = y - 1
 
-# === Define target ratios and exact counts ===
-total = len(sources)
-target_counts = {
-    "train": int(total * 0.55),
-    "val": int(total * 0.15),
-    "test": total - int(total * 0.55) - int(total * 0.15),
-}
-print("✅ Target counts:", target_counts)
+NUM_CLASSES = 35
+split_ratios = {"train": 0.55, "val": 0.15, "test": 0.30}
+print("✅ Dataset loaded")
 
-# === Parse source and group by recording ===
+# === Parse source info: (scene, device, recording)
 def parse_source(src):
     parts = src.split('_')
     scene = parts[0]
@@ -35,86 +32,88 @@ def parse_source(src):
     recording = '_'.join(parts[2:]).replace('.npy', '')
     return scene, device, recording
 
-recording_to_indices = defaultdict(list)
-scenes = []
+recording_groups = defaultdict(list)
+parsed_info = []
 
 for idx, src in enumerate(sources):
     scene, device, recording = parse_source(src)
-    recording_to_indices[(device, scene, recording)].append(idx)
-    scenes.append(scene)
+    dev_idx = int(device.replace('D', '')) - 1  # D01 → 0
+    key = (dev_idx, scene, recording)
+    recording_groups[key].append(idx)
+    parsed_info.append((scene, dev_idx, recording))
 
-unique_scenes = sorted(set(scenes))
+print(f"✅ Found {len(recording_groups)} unique (device, scene, recording) groups")
 
-# === Build per-scene recording groups ===
-scene_recordings = defaultdict(list)
-scene_counts = {scene: 0 for scene in unique_scenes}
-for rec_key, indices in recording_to_indices.items():
-    scene = rec_key[1]
-    scene_recordings[scene].append((rec_key, indices))
-    scene_counts[scene] += len(indices)
+# === Group recordings per device
+device_to_recordings = defaultdict(list)
+for (dev, scene, rec), indices in recording_groups.items():
+    device_to_recordings[dev].append((scene, rec, indices))
 
-# === Compute per-scene target counts ===
-scene_targets = {
-    scene: {
-        split: int(target_counts[split] * (scene_counts[scene] / sum(scene_counts.values())))
-        for split in ["train", "val", "test"]
-    }
-    for scene in unique_scenes
-}
-
-# === Initialize splits ===
+# === Stratified disjoint split ensuring each class appears in all splits
 splits = {'train': [], 'val': [], 'test': []}
 split_labels = np.empty(len(sources), dtype=object)
 split_labels[:] = "none"
-counters = {'train': 0, 'val': 0, 'test': 0}
 
-# === Allocate recordings per scene ===
-for scene in unique_scenes:
-    recs = scene_recordings[scene]
-    recs.sort(key=lambda item: len(item[1]), reverse=True)
-    local_counts = {'train': 0, 'val': 0, 'test': 0}
-    local_target = scene_targets[scene]
+for dev in range(NUM_CLASSES):
+    recs = device_to_recordings[dev]
+    recs = shuffle(recs, random_state=SEED)
 
-    for rec_key, indices in recs:
-        rec_len = len(indices)
+    total = sum(len(indices) for _, _, indices in recs)
+    target = {
+        "train": int(total * split_ratios["train"]),
+        "val": int(total * split_ratios["val"]),
+        "test": total - int(total * split_ratios["train"]) - int(total * split_ratios["val"])
+    }
+
+    counts = {"train": 0, "val": 0, "test": 0}
+
+    for scene, rec, indices in recs:
         assigned = False
-        for split in ['train', 'val', 'test']:
-            if local_counts[split] + rec_len <= local_target[split]:
+        for split in ["train", "val", "test"]:
+            if counts[split] + len(indices) <= target[split]:
                 splits[split].extend(indices)
                 split_labels[indices] = split
-                local_counts[split] += rec_len
-                counters[split] += rec_len
+                counts[split] += len(indices)
                 assigned = True
                 break
         if not assigned:
-            remain = {k: local_target[k] - local_counts[k] for k in ['train', 'val', 'test']}
-            best_split = max(remain, key=remain.get)
+            # assign to split with most remaining room
+            remaining = {s: target[s] - counts[s] for s in ["train", "val", "test"]}
+            best_split = max(remaining, key=remaining.get)
             splits[best_split].extend(indices)
             split_labels[indices] = best_split
-            local_counts[best_split] += rec_len
-            counters[best_split] += rec_len
+            counts[best_split] += len(indices)
 
-# === Save split arrays ===
+print("✅ Split complete")
+
+# === Save split arrays
 for split in ['train', 'val', 'test']:
     idxs = np.array(splits[split])
     np.save(os.path.join(SAVE_DIR, f"X_{split}.npy"), X[idxs])
     np.save(os.path.join(SAVE_DIR, f"y_{split}.npy"), y[idxs])
-    print(f"✅ [Disjoint] Saved {split} split with {len(idxs)} samples")
+    print(f"✅ Saved: X_{split}.npy with {len(idxs)} samples")
 
-# === Save per-scene-per-split arrays ===
+# === Save per-scene-per-split arrays
+unique_scenes = sorted(set([parse_source(s)[0] for s in sources]))
 for split in ['train', 'val', 'test']:
     for scene in unique_scenes:
         idxs = [i for i in splits[split] if parse_source(sources[i])[0] == scene]
         np.save(os.path.join(SAVE_DIR, f"X_{scene}_{split}.npy"), X[idxs])
         np.save(os.path.join(SAVE_DIR, f"y_{scene}_{split}.npy"), y[idxs])
-        print(f"✅ [Disjoint] Saved: X_{scene}_{split}.npy with {len(idxs)} samples")
+        print(f"✅ Saved: X_{scene}_{split}.npy with {len(idxs)} samples")
 
-# === Save metadata ===
+# === Save metadata
 metadata = pd.DataFrame({
     "filename": sources,
-    "device": [parse_source(src)[1] for src in sources],
-    "scene": [parse_source(src)[0] for src in sources],
+    "device": [parse_source(s)[1] for s in sources],
+    "scene": [parse_source(s)[0] for s in sources],
     "split": split_labels
 })
 metadata.to_csv(os.path.join(SAVE_DIR, "all_split_metadata_disjoint.csv"), index=False)
-print("📄 [Disjoint] Saved metadata for all samples")
+print("📄 Saved metadata CSV")
+
+# === Check: Print unique class count per split
+for split in ['train', 'val', 'test']:
+    labels = y[np.array(splits[split])]
+    unique_labels = np.unique(labels)
+    print(f"🔎 {split.upper()} contains {len(unique_labels)} unique classes: {sorted(unique_labels)}")
