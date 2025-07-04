@@ -14,7 +14,6 @@ This repository implements source device identification using log-mel spectrogra
 | `dataset_preperation/`         | Create disjoint Train, Validation, and Test Splits                         |
 | `spectrogram_generation/`      | Convert audio to log-Mel spectrograms                                      |
 | `spectrogram_segmentation/`    | Create log-Mel Spectrogram Segments                                        |
-| `statistical_testing/`         | McNemar's statistical testing                                              |
 | `training_vision/`             | Train CBAM-ResNet models on VISION dataset (standard & merged)             |
 | `transfer_learning/`           | Transfer Learning of VISION models on FloreView and POLIPHONE datasets     |
 
@@ -119,14 +118,8 @@ python training_vision/train_test_model_merged_cbam.py
 python ablation_study/abl_cbam_resnet_patch.py
 ```
 
-### 8. Statistical Testing
 
-```bash
-# McNemar's statistical testing
-python statistical_testing/mcnemars.py
-```
-
-### 9. Transfer Learning on FloreView and POLIPHONE
+### 8. Transfer Learning on FloreView and POLIPHONE
 
 ```bash
 # Transfer learning on FloreView
